@@ -20,12 +20,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Vulkan REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
+find_package(fmt REQUIRED)
 
 # set the C++ standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+
 # add the executable
 add_executable(VulkanTutorial main.cpp)
+target_compile_options(VulkanTutorial PUBLIC -Wall -Wextra -Werror -Wunused -Wpedantic)
 
-target_link_libraries(${PROJECT_NAME} glfw ${GLFW_LIBRARIES} Vulkan::Vulkan glm::glm)
+target_link_libraries(${PROJECT_NAME} glfw ${GLFW_LIBRARIES} Vulkan::Vulkan glm::glm fmt::fmt)
