@@ -60,6 +60,7 @@ class HelloTiangle {
     std::vector<vk::Image> swapChainImages;
     vk::Format swapChainImageFormat;
     vk::Extent2D swapChainExtent;
+    std::vector<vk::ImageView> swapChainImageViews;
     // TODO: Destruir tudo. Ou criando unique_ptrs ou usando vk_raii
 
     void initVulkan() {
@@ -68,6 +69,31 @@ class HelloTiangle {
         pickPhysicalDevice();
         createLogicalDevice();
         createSwapChain();
+        createImageViews();
+    }
+
+    void createImageViews() {
+        swapChainImageViews.resize(swapChainImages.size());
+
+        for (size_t i = 0; i < swapChainImages.size(); i++) {
+            vk::ImageViewCreateInfo createInfo{
+                .sType = vk::StructureType::eImageViewCreateInfo,
+                .image = swapChainImages[i],
+                .viewType = vk::ImageViewType::e2D,
+                .format = swapChainImageFormat,
+                .components.r = vk::ComponentSwizzle::eIdentity,
+                .components.g = vk::ComponentSwizzle::eIdentity,
+                .components.b = vk::ComponentSwizzle::eIdentity,
+                .components.a = vk::ComponentSwizzle::eIdentity,
+                .subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor,
+                .subresourceRange.baseMipLevel = 0,
+                .subresourceRange.levelCount = 1,
+                .subresourceRange.baseArrayLayer = 0,
+                .subresourceRange.layerCount = 1,
+            };
+
+            swapChainImageViews[i] = device.createImageView(createInfo);
+        }
     }
 
     void createSurface() {
