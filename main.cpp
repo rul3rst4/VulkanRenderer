@@ -1,6 +1,7 @@
-#define VULKAN_HPP_NO_CONSTRUCTORS
-#include <vulkan/vulkan.hpp>
+#define VULKAN_HPP_NO_CONSTRUCTORS // Permite usar Designated Initializers pra construir os objetos.
+// #define VULKAN_HPP_NO_EXCEPTIONS // Retorna um result type pra ser tratado.
 // #define GLFW_INCLUDE_VULKAN
+#include <vulkan/vulkan.hpp>
 #include <GLFW/glfw3.h>
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -39,8 +40,11 @@ private:
 #endif
     }();
 
+    /// vulkan_hpp não tem destrutores para essas variaveis, apenas no vulkan_raii.hpp.
     vk::Instance instance;
     vk::PhysicalDevice physicalDevice;
+    vk::Device device;
+    vk::Queue graphicsQueue;
 
     void initVulkan() {
         createVkInstance();
@@ -49,7 +53,29 @@ private:
     }
 
     void createLogicalDevice() {
+        auto indices = findQueueFamilies(physicalDevice);
 
+        float queuePriority = 1.0f;
+
+        vk::DeviceQueueCreateInfo queueCreateInfo{
+            .sType = vk::StructureType::eDeviceQueueCreateInfo,
+            .queueFamilyIndex = indices.graphicsFamily.value(),
+            .queueCount = 1,
+            .pQueuePriorities = &queuePriority
+        };
+
+        vk::PhysicalDeviceFeatures deviceFeatures{};
+
+        vk::DeviceCreateInfo createInfo{
+            .sType = vk::StructureType::eDeviceCreateInfo,
+            .pQueueCreateInfos = &queueCreateInfo,
+            .queueCreateInfoCount = 1,
+            .pEnabledFeatures = &deviceFeatures,
+            .enabledExtensionCount = 0
+        };
+
+        device = physicalDevice.createDevice(createInfo);
+        graphicsQueue = device.getQueue(indices.graphicsFamily.value(), 0);
     }
 
     void pickPhysicalDevice() {
