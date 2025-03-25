@@ -1,4 +1,4 @@
-#define VULKAN_HPP_NO_CONSTRUCTORS // Permite usar Designated Initializers pra construir os objetos.
+#define VULKAN_HPP_NO_CONSTRUCTORS  // Permite usar Designated Initializers pra construir os objetos.
 // #define VULKAN_HPP_NO_EXCEPTIONS // Retorna um result type pra ser tratado.
 // #define GLFW_INCLUDE_VULKAN
 #include <vulkan/vulkan.hpp>
@@ -20,25 +20,20 @@ struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presenteFamily;
 
-    bool isComplete() {
-        return graphicsFamily.has_value() && presenteFamily.has_value();
-    }
+    bool isComplete() { return graphicsFamily.has_value() && presenteFamily.has_value(); }
 };
 
-class HelloTiangle
-{
-private:
+class HelloTiangle {
+   private:
     std::unique_ptr<GLFWwindow, decltype(&::glfwDestroyWindow)> window;
     static inline constexpr int width = 800;
     static inline constexpr int height = 600;
-    const std::vector<const char*> validationLayers = {
-        "VK_LAYER_KHRONOS_validation"
-    };
+    const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
     static inline constexpr bool enableValidationLayers = [] {
 #ifdef NDEBUG
-    return false;
+        return false;
 #else
-    return true;
+        return true;
 #endif
     }();
 
@@ -70,32 +65,27 @@ private:
     void createLogicalDevice() {
         auto indices = findQueueFamilies(physicalDevice);
 
-
         std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presenteFamily.value() };
+        std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presenteFamily.value()};
 
         float queuePriority = 1.0f;
 
         for (auto queueFamily : uniqueQueueFamilies) {
-            vk::DeviceQueueCreateInfo queueCreateInfo{
-                .sType = vk::StructureType::eDeviceQueueCreateInfo,
-                .queueFamilyIndex = queueFamily,
-                .queueCount = 1,
-                .pQueuePriorities = &queuePriority
-            };
+            vk::DeviceQueueCreateInfo queueCreateInfo{.sType = vk::StructureType::eDeviceQueueCreateInfo,
+                                                      .queueFamilyIndex = queueFamily,
+                                                      .queueCount = 1,
+                                                      .pQueuePriorities = &queuePriority};
 
             queueCreateInfos.emplace_back(queueCreateInfo);
         }
 
         vk::PhysicalDeviceFeatures deviceFeatures{};
 
-        vk::DeviceCreateInfo createInfo{
-            .sType = vk::StructureType::eDeviceCreateInfo,
-            .pQueueCreateInfos = queueCreateInfos.data(),
-            .queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
-            .pEnabledFeatures = &deviceFeatures,
-            .enabledExtensionCount = 0
-        };
+        vk::DeviceCreateInfo createInfo{.sType = vk::StructureType::eDeviceCreateInfo,
+                                        .pQueueCreateInfos = queueCreateInfos.data(),
+                                        .queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
+                                        .pEnabledFeatures = &deviceFeatures,
+                                        .enabledExtensionCount = 0};
 
         device = physicalDevice.createDevice(createInfo);
         graphicsQueue = device.getQueue(indices.graphicsFamily.value(), 0);
@@ -109,7 +99,7 @@ private:
             throw std::runtime_error("failed to find GPUs with Vulkan support!");
         }
 
-        for (const auto& device: devices) {
+        for (const auto& device : devices) {
             if (isDeviceSuitable(device)) {
                 physicalDevice = device;
                 return;
@@ -119,7 +109,7 @@ private:
         throw std::runtime_error("failed to find a suitable GPU!");
     }
 
-    bool isDeviceSuitable(const vk::PhysicalDevice &device) {
+    bool isDeviceSuitable(const vk::PhysicalDevice& device) {
         // auto properties = device.getProperties();
         // auto features = device.getFeatures();
         auto indices = findQueueFamilies(device);
@@ -127,17 +117,19 @@ private:
         return indices.isComplete();
     }
 
-    QueueFamilyIndices findQueueFamilies(const vk::PhysicalDevice &device) {
+    QueueFamilyIndices findQueueFamilies(const vk::PhysicalDevice& device) {
         auto queueFamilies = device.getQueueFamilyProperties();
         QueueFamilyIndices indices;
 
         int i = 0;
-        for (const auto& queueFamily: queueFamilies) {
+        for (const auto& queueFamily : queueFamilies) {
             if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) {
                 indices.graphicsFamily = i;
             }
 
-            auto presentSupport = device.getSurfaceSupportKHR(i, surface); // Teoricamente podem ser filas diferentes, mas o ideal e mais comum, é que sejam as mesmas filas.
+            auto presentSupport =
+                device.getSurfaceSupportKHR(i, surface);  // Teoricamente podem ser filas diferentes, mas o ideal e mais
+                                                          // comum, é que sejam as mesmas filas.
 
             if (presentSupport) {
                 indices.presenteFamily = i;
@@ -158,31 +150,29 @@ private:
             throw std::runtime_error("validation layers requested, but not available!");
         }
 
-        vk::ApplicationInfo appInfo{
-            .sType = vk::StructureType::eApplicationInfo,
-            .pApplicationName = "Hello Triangle",
-            .applicationVersion = VK_MAKE_VERSION(1,0,0),
-            .pEngineName = "No Engine",
-            .engineVersion = VK_MAKE_VERSION(1,0,0),
-            .apiVersion = VK_API_VERSION_1_4
-        };
+        vk::ApplicationInfo appInfo{.sType = vk::StructureType::eApplicationInfo,
+                                    .pApplicationName = "Hello Triangle",
+                                    .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+                                    .pEngineName = "No Engine",
+                                    .engineVersion = VK_MAKE_VERSION(1, 0, 0),
+                                    .apiVersion = VK_API_VERSION_1_4};
 
         vk::InstanceCreateInfo createInfo{
             .sType = vk::StructureType::eInstanceCreateInfo,
-            .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR, // Essa flag é necessaria para o MacOS
+            .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,  // Essa flag é necessaria para o MacOS
             .pApplicationInfo = &appInfo,
         };
 
         uint32_t glfwExtensionCount{};
-        const char** p_glfwExtensions; // TODO: revisar essa alocação, talvez seja um leak
+        const char** p_glfwExtensions;  // TODO: revisar essa alocação, talvez seja um leak
 
         p_glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
         std::vector<const char*> glfwExtensions(p_glfwExtensions, p_glfwExtensions + glfwExtensionCount);
 
-        #ifdef __APPLE__
-            addMacSpecificExtensions(glfwExtensions);
-        #endif
+#ifdef __APPLE__
+        addMacSpecificExtensions(glfwExtensions);
+#endif
 
         createInfo.enabledExtensionCount = static_cast<uint32_t>(glfwExtensions.size());
         createInfo.ppEnabledExtensionNames = glfwExtensions.data();
@@ -207,9 +197,8 @@ private:
             const char* extensionName{extension.extensionName.data()};
             fmt::print("\t {}", extensionName);
 
-            auto glfwRequiresExtension = std::ranges::any_of(glfwExtensions, [&extensionName](const char* value) {
-                return std::strcmp(extensionName, value) == 0;
-            });
+            auto glfwRequiresExtension = std::ranges::any_of(
+                glfwExtensions, [&extensionName](const char* value) { return std::strcmp(extensionName, value) == 0; });
 
             if (glfwRequiresExtension) {
                 fmt::print("*** \t -> GLFW Required\n");
@@ -222,8 +211,8 @@ private:
     bool checkValidationLayersSupport() {
         auto availableLayers = vk::enumerateInstanceLayerProperties();
 
-        for (const auto& layerName: validationLayers) {
-            auto layerFound = std::ranges::any_of(availableLayers, [&layerName](const vk::LayerProperties &layer){
+        for (const auto& layerName : validationLayers) {
+            auto layerFound = std::ranges::any_of(availableLayers, [&layerName](const vk::LayerProperties& layer) {
                 return std::strcmp(layerName, layer.layerName.data()) == 0;
             });
 
@@ -235,8 +224,9 @@ private:
         return true;
     }
 
-    void addMacSpecificExtensions(std::vector<const char*> &glfwExtensions) {
-        // glfwExtensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME); Só é necessario no Vulkan 1.0
+    void addMacSpecificExtensions(std::vector<const char*>& glfwExtensions) {
+        // glfwExtensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME); Só é necessario no
+        // Vulkan 1.0
         glfwExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     }
 
@@ -246,9 +236,7 @@ private:
         }
     }
 
-    void cleanup() {
-        glfwTerminate();
-    }
+    void cleanup() { glfwTerminate(); }
 
     void initWindow() {
         glfwInit();
@@ -257,14 +245,10 @@ private:
         window.reset(glfwCreateWindow(width, height, "Vulkan", nullptr, nullptr));
     }
 
-public:
-    explicit HelloTiangle() :
-        window(std::unique_ptr<GLFWwindow, decltype(&::glfwDestroyWindow)>(nullptr, &::glfwDestroyWindow))
-    {
-    }
-    ~HelloTiangle() {
-
-    }
+   public:
+    explicit HelloTiangle()
+        : window(std::unique_ptr<GLFWwindow, decltype(&::glfwDestroyWindow)>(nullptr, &::glfwDestroyWindow)) {}
+    ~HelloTiangle() {}
 
     void run() {
         initWindow();
@@ -274,16 +258,12 @@ public:
     }
 };
 
-
 int main() {
     HelloTiangle app;
 
-    try
-    {
+    try {
         app.run();
-    }
-    catch(const std::exception& e)
-    {
+    } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
     }
 
