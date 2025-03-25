@@ -54,6 +54,7 @@
         "vector": "cpp",
         "algorithm": "cpp",
         "iomanip": "cpp",
-        "__config": "cpp"
+        "__config": "cpp",
+        "set": "cpp"
     }
 }
