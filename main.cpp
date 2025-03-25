@@ -14,12 +14,14 @@
 #include <fmt/format.h>
 #include <algorithm>
 #include <optional>
+#include <set>
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
+    std::optional<uint32_t> presenteFamily;
 
     bool isComplete() {
-        return graphicsFamily.has_value();
+        return graphicsFamily.has_value() && presenteFamily.has_value();
     }
 };
 
@@ -45,37 +47,59 @@ private:
     vk::PhysicalDevice physicalDevice;
     vk::Device device;
     vk::Queue graphicsQueue;
+    vk::Queue presenteQueue;
+    vk::SurfaceKHR surface;
+    // TODO: Destruir tudo. Ou criando unique_ptrs ou usando vk_raii
 
     void initVulkan() {
         createVkInstance();
+        createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
+    }
+
+    void createSurface() {
+        VkSurfaceKHR surfaceHandle;
+        if (glfwCreateWindowSurface(instance, window.get(), nullptr, &surfaceHandle) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create window surface!");
+        }
+
+        surface = surfaceHandle;
     }
 
     void createLogicalDevice() {
         auto indices = findQueueFamilies(physicalDevice);
 
+
+        std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
+        std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presenteFamily.value() };
+
         float queuePriority = 1.0f;
 
-        vk::DeviceQueueCreateInfo queueCreateInfo{
-            .sType = vk::StructureType::eDeviceQueueCreateInfo,
-            .queueFamilyIndex = indices.graphicsFamily.value(),
-            .queueCount = 1,
-            .pQueuePriorities = &queuePriority
-        };
+        for (auto queueFamily : uniqueQueueFamilies) {
+            vk::DeviceQueueCreateInfo queueCreateInfo{
+                .sType = vk::StructureType::eDeviceQueueCreateInfo,
+                .queueFamilyIndex = queueFamily,
+                .queueCount = 1,
+                .pQueuePriorities = &queuePriority
+            };
+
+            queueCreateInfos.emplace_back(queueCreateInfo);
+        }
 
         vk::PhysicalDeviceFeatures deviceFeatures{};
 
         vk::DeviceCreateInfo createInfo{
             .sType = vk::StructureType::eDeviceCreateInfo,
-            .pQueueCreateInfos = &queueCreateInfo,
-            .queueCreateInfoCount = 1,
+            .pQueueCreateInfos = queueCreateInfos.data(),
+            .queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
             .pEnabledFeatures = &deviceFeatures,
             .enabledExtensionCount = 0
         };
 
         device = physicalDevice.createDevice(createInfo);
         graphicsQueue = device.getQueue(indices.graphicsFamily.value(), 0);
+        presenteQueue = device.getQueue(indices.presenteFamily.value(), 0);
     }
 
     void pickPhysicalDevice() {
@@ -111,6 +135,12 @@ private:
         for (const auto& queueFamily: queueFamilies) {
             if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) {
                 indices.graphicsFamily = i;
+            }
+
+            auto presentSupport = device.getSurfaceSupportKHR(i, surface); // Teoricamente podem ser filas diferentes, mas o ideal e mais comum, é que sejam as mesmas filas.
+
+            if (presentSupport) {
+                indices.presenteFamily = i;
             }
 
             if (indices.isComplete()) {
