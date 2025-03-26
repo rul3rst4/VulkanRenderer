@@ -16,6 +16,7 @@
 #include <optional>
 #include <set>
 #include <limits>
+#include <fstream>
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
@@ -29,6 +30,21 @@ struct SwapChainSupportDetails {
     std::vector<vk::SurfaceFormatKHR> formats;
     std::vector<vk::PresentModeKHR> presenteModes;
 };
+
+static std::vector<char> readFile(const std::string& fileName) {
+    std::ifstream file(fileName, std::ios::ate | std::ios::binary);  // le o arquivo começando pelo final.
+
+    if (!file.is_open()) {
+        throw std::runtime_error("failed to open file!");
+    }
+
+    size_t fileSize = static_cast<size_t>(file.tellg());
+    std::vector<char> buffer(fileSize);
+    file.seekg(0);  // volta para o começo do arquivo.
+    file.read(buffer.data(), fileSize);
+
+    return buffer;
+}
 
 class HelloTiangle {
    private:
@@ -70,6 +86,46 @@ class HelloTiangle {
         createLogicalDevice();
         createSwapChain();
         createImageViews();
+        createGraphicsPipeline();
+    }
+
+    void createGraphicsPipeline() {
+        auto vertexShaderCode = readFile("/Users/andersonkulitch/Documents/dev/vulkan/shaders/vert.spv"); // esses shaders foram compilados usando glslc
+        auto fragmentShaderCode = readFile("/Users/andersonkulitch/Documents/dev/vulkan/shaders/frag.spv"); // esses shaders foram compilados usando glslc
+
+        auto vertexShaderModule = createShaderModule(vertexShaderCode);
+        auto fragmentShaderModule = createShaderModule(fragmentShaderCode);
+
+        vk::PipelineShaderStageCreateInfo vertexShaderStageInfo{
+            .sType = vk::StructureType::ePipelineShaderStageCreateInfo,
+            .stage = vk::ShaderStageFlagBits::eVertex,
+            .module = vertexShaderModule,
+            .pName = "main",
+            // .pSpecializationInfo // Permite configurar constantes que podem ser usadas no shader para otimizar o
+            // código em tempo de criação do pipeline.
+        };
+
+        vk::PipelineShaderStageCreateInfo fragmentShaderStageInfo{
+            .sType = vk::StructureType::ePipelineShaderStageCreateInfo,
+            .stage = vk::ShaderStageFlagBits::eFragment,
+            .module = fragmentShaderModule,
+            .pName = "main",
+            // .pSpecializationInfo // Permite configurar constantes que podem ser usadas no shader para otimizar o
+            // código em tempo de criação do pipeline.
+        };
+
+        vk::PipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
+
+        device.destroyShaderModule(vertexShaderModule);
+        device.destroyShaderModule(fragmentShaderModule);
+    }
+
+    vk::ShaderModule createShaderModule(const std::vector<char>& code) {
+        vk::ShaderModuleCreateInfo createInfo{.sType = vk::StructureType::eShaderModuleCreateInfo,
+                                              .codeSize = code.size(),
+                                              .pCode = reinterpret_cast<const uint32_t*>(code.data())};
+
+        return device.createShaderModule(createInfo);
     }
 
     void createImageViews() {
