@@ -73,13 +73,14 @@ class HelloTiangle {
     vk::Queue presenteQueue;
     vk::SurfaceKHR surface;
     vk::SwapchainKHR swapChain;
-    std::vector<vk::Image> swapChainImages;
     vk::Format swapChainImageFormat;
     vk::Extent2D swapChainExtent;
-    std::vector<vk::ImageView> swapChainImageViews;
     vk::RenderPass renderPass;
     vk::PipelineLayout pipelineLayout;
     vk::Pipeline graphicsPipeline;
+    std::vector<vk::Image> swapChainImages;
+    std::vector<vk::ImageView> swapChainImageViews;
+    std::vector<vk::Framebuffer> swapChainFramebuffers;
     // TODO: Destruir tudo. Ou criando unique_ptrs ou usando vk_raii
 
     void initVulkan() {
@@ -91,6 +92,25 @@ class HelloTiangle {
         createImageViews();
         createRenderPass();
         createGraphicsPipeline();
+        createFramebuffers();
+    }
+
+    void createFramebuffers() {
+        swapChainFramebuffers.resize(swapChainImageViews.size());
+
+        for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+            vk::ImageView attachments[] = {swapChainImageViews[i]};
+
+            vk::FramebufferCreateInfo framebufferInfo{.sType = vk::StructureType::eFramebufferCreateInfo,
+                                                      .renderPass = renderPass,
+                                                      .attachmentCount = 1,
+                                                      .pAttachments = attachments,
+                                                      .width = swapChainExtent.width,
+                                                      .height = swapChainExtent.height,
+                                                      .layers = 1};
+
+            swapChainFramebuffers[i] = device.createFramebuffer(framebufferInfo);
+        }
     }
 
     void createRenderPass() {
