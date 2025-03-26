@@ -78,6 +78,8 @@ class HelloTiangle {
     vk::RenderPass renderPass;
     vk::PipelineLayout pipelineLayout;
     vk::Pipeline graphicsPipeline;
+    vk::CommandPool commandPool;
+    vk::CommandBuffer commandBuffer;
     std::vector<vk::Image> swapChainImages;
     std::vector<vk::ImageView> swapChainImageViews;
     std::vector<vk::Framebuffer> swapChainFramebuffers;
@@ -93,6 +95,65 @@ class HelloTiangle {
         createRenderPass();
         createGraphicsPipeline();
         createFramebuffers();
+        createCommandPool();
+        createCommandBuffer();
+    }
+
+    void recordCommandBuffer(vk::CommandBuffer& commandBuffer, uint32_t imageIndex) {
+        vk::CommandBufferBeginInfo beginInfo{.sType = vk::StructureType::eCommandBufferBeginInfo,
+                                             // .flags = 0,
+                                             .pInheritanceInfo = nullptr};
+
+        commandBuffer.begin(beginInfo);
+
+        vk::ClearValue clearColor = {.color.float32 = std::array<float, 4>{1.0f, 1.0f, 1.0f, 1.0f}};
+
+        vk::RenderPassBeginInfo renderPassInfo{.sType = vk::StructureType::eRenderPassBeginInfo,
+                                               .renderPass = renderPass,
+                                               .framebuffer = swapChainFramebuffers[imageIndex],
+                                               .renderArea.offset = {0, 0},
+                                               .renderArea.extent = swapChainExtent,
+                                               .clearValueCount = 1,
+                                               .pClearValues = &clearColor};
+
+        commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
+        commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
+
+        vk::Viewport viewport{.x = 0.0f,
+                              .y = 0.0f,
+                              .width = static_cast<float>(swapChainExtent.width),
+                              .height = static_cast<float>(swapChainExtent.height),
+                              .minDepth = 0.0f,
+                              .maxDepth = 1.0f};
+
+        commandBuffer.setViewport(0, 1, &viewport);
+
+        vk::Rect2D scissor{.offset = {0, 0}, .extent = swapChainExtent};
+        commandBuffer.setScissor(0, 1, &scissor);
+
+        commandBuffer.draw(3, 1, 0, 0);
+        commandBuffer.endRenderPass();
+        commandBuffer.end();
+    }
+
+    void createCommandBuffer() {
+        vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
+                                                .commandPool = commandPool,
+                                                .level = vk::CommandBufferLevel::ePrimary,
+                                                .commandBufferCount = 1};
+
+        auto x = device.allocateCommandBuffers(allocInfo);
+        commandBuffer = x[0];
+    }
+
+    void createCommandPool() {
+        auto queueFamilyIndices = findQueueFamilies(physicalDevice);
+
+        vk::CommandPoolCreateInfo poolInfo{.sType = vk::StructureType::eCommandPoolCreateInfo,
+                                           .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+                                           .queueFamilyIndex = queueFamilyIndices.graphicsFamily.value()};
+
+        commandPool = device.createCommandPool(poolInfo);
     }
 
     void createFramebuffers() {

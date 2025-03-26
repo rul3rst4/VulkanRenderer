@@ -55,6 +55,8 @@
         "algorithm": "cpp",
         "iomanip": "cpp",
         "__config": "cpp",
-        "set": "cpp"
+        "set": "cpp",
+        "__tree": "cpp",
+        "fstream": "cpp"
     }
 }
