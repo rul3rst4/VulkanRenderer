@@ -79,6 +79,7 @@ class HelloTiangle {
     std::vector<vk::ImageView> swapChainImageViews;
     vk::RenderPass renderPass;
     vk::PipelineLayout pipelineLayout;
+    vk::Pipeline graphicsPipeline;
     // TODO: Destruir tudo. Ou criando unique_ptrs ou usando vk_raii
 
     void initVulkan() {
@@ -156,8 +157,8 @@ class HelloTiangle {
         vk::PipelineVertexInputStateCreateInfo vertexInputCreateInfo {
             .sType = vk::StructureType::ePipelineVertexInputStateCreateInfo,
             .vertexBindingDescriptionCount = 0,
-            .pVertexAttributeDescriptions = nullptr,
-            .pVertexAttributeDescriptions = 0,
+            .pVertexBindingDescriptions = nullptr,
+            .vertexAttributeDescriptionCount = 0,
             .pVertexAttributeDescriptions = nullptr
         };
 
@@ -188,7 +189,6 @@ class HelloTiangle {
             .scissorCount = 1,
             .pScissors = &scissor
         };
-
 
         vk::PipelineRasterizationStateCreateInfo rasterizer{
             .sType = vk::StructureType::ePipelineRasterizationStateCreateInfo,
@@ -244,6 +244,43 @@ class HelloTiangle {
 
         pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
 
+        std::vector<vk::DynamicState> dynamicStates = {
+            vk::DynamicState::eViewport,
+            vk::DynamicState::eScissor
+        };
+
+        vk::PipelineDynamicStateCreateInfo dynamicState{
+            .sType = vk::StructureType::ePipelineDynamicStateCreateInfo,
+            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
+            .pDynamicStates = dynamicStates.data()
+        };
+
+
+        vk::GraphicsPipelineCreateInfo pipelineInfo{
+            .sType = vk::StructureType::eGraphicsPipelineCreateInfo,
+            .stageCount = 2,
+            .pStages = shaderStages,
+            .pVertexInputState = &vertexInputCreateInfo,
+            .pInputAssemblyState = &inputAssembly,
+            .pViewportState = &viewportState,
+            .pRasterizationState = &rasterizer,
+            .pMultisampleState = &multisampling,
+            .pDepthStencilState = nullptr,
+            .pColorBlendState = &colorBlending,
+            .pDynamicState = &dynamicState,
+            .layout = pipelineLayout,
+            .renderPass = renderPass,
+            .subpass = 0,
+            .basePipelineHandle = nullptr,
+            .basePipelineIndex = -1
+        };
+
+        auto pipelineCreationResult = device.createGraphicsPipeline(nullptr, pipelineInfo);
+        if (pipelineCreationResult.result != vk::Result::eSuccess) {
+            throw std::runtime_error("failed to create graphics pipeline!");
+        }
+
+        graphicsPipeline = pipelineCreationResult.value;
 
         device.destroyShaderModule(vertexShaderModule);
         device.destroyShaderModule(fragmentShaderModule);
