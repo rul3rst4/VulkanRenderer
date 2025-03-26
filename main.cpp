@@ -77,6 +77,8 @@ class HelloTiangle {
     vk::Format swapChainImageFormat;
     vk::Extent2D swapChainExtent;
     std::vector<vk::ImageView> swapChainImageViews;
+    vk::RenderPass renderPass;
+    vk::PipelineLayout pipelineLayout;
     // TODO: Destruir tudo. Ou criando unique_ptrs ou usando vk_raii
 
     void initVulkan() {
@@ -86,7 +88,42 @@ class HelloTiangle {
         createLogicalDevice();
         createSwapChain();
         createImageViews();
+        createRenderPass();
         createGraphicsPipeline();
+    }
+
+    void createRenderPass() {
+        vk::AttachmentDescription colorAttachment{
+            .format = swapChainImageFormat,
+            .samples = vk::SampleCountFlagBits::e1,
+            .loadOp = vk::AttachmentLoadOp::eClear,
+            .storeOp = vk::AttachmentStoreOp::eStore,
+            .stencilLoadOp = vk::AttachmentLoadOp::eDontCare,
+            .stencilStoreOp = vk::AttachmentStoreOp::eDontCare,
+            .initialLayout = vk::ImageLayout::eUndefined,
+            .finalLayout = vk::ImageLayout::ePresentSrcKHR
+        };
+
+        vk::AttachmentReference colorAttachmentRef{
+            .attachment = 0,
+            .layout = vk::ImageLayout::eColorAttachmentOptimal
+        };
+
+        vk::SubpassDescription subpass {
+            .pipelineBindPoint = vk::PipelineBindPoint::eGraphics,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachmentRef
+        };
+
+        vk::RenderPassCreateInfo renderPassInfo{
+            .sType = vk::StructureType::eRenderPassCreateInfo,
+            .attachmentCount = 1,
+            .pAttachments = &colorAttachment,
+            .subpassCount = 1,
+            .pSubpasses = &subpass
+        };
+
+        renderPass = device.createRenderPass(renderPassInfo);
     }
 
     void createGraphicsPipeline() {
@@ -115,6 +152,98 @@ class HelloTiangle {
         };
 
         vk::PipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
+
+        vk::PipelineVertexInputStateCreateInfo vertexInputCreateInfo {
+            .sType = vk::StructureType::ePipelineVertexInputStateCreateInfo,
+            .vertexBindingDescriptionCount = 0,
+            .pVertexAttributeDescriptions = nullptr,
+            .pVertexAttributeDescriptions = 0,
+            .pVertexAttributeDescriptions = nullptr
+        };
+
+        vk::PipelineInputAssemblyStateCreateInfo inputAssembly {
+            .sType = vk::StructureType::ePipelineInputAssemblyStateCreateInfo,
+            .topology = vk::PrimitiveTopology::eTriangleList,
+            .primitiveRestartEnable = VK_FALSE
+        };
+
+        vk::Viewport viewport{
+            .x = 0.0f,
+            .y = 0.0f,
+            .width = static_cast<float>(swapChainExtent.width),
+            .height = static_cast<float>(swapChainExtent.height),
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f
+        };
+
+        vk::Rect2D scissor{
+            .offset = {0,0},
+            .extent = swapChainExtent
+        };
+
+        vk::PipelineViewportStateCreateInfo viewportState{
+            .sType = vk::StructureType::ePipelineViewportStateCreateInfo,
+            .viewportCount = 1,
+            .pViewports = &viewport,
+            .scissorCount = 1,
+            .pScissors = &scissor
+        };
+
+
+        vk::PipelineRasterizationStateCreateInfo rasterizer{
+            .sType = vk::StructureType::ePipelineRasterizationStateCreateInfo,
+            .depthClampEnable = VK_FALSE,
+            .rasterizerDiscardEnable = VK_FALSE,
+            .polygonMode = vk::PolygonMode::eFill,
+            .lineWidth = 1.0f,
+            .cullMode = vk::CullModeFlagBits::eBack,
+            .frontFace = vk::FrontFace::eClockwise,
+            .depthBiasEnable = VK_FALSE,
+            .depthBiasConstantFactor = 0.0f,
+            .depthBiasClamp = 0.0f,
+            .depthBiasSlopeFactor = 0.0f
+        };
+
+        vk::PipelineMultisampleStateCreateInfo multisampling{
+            .sType = vk::StructureType::ePipelineMultisampleStateCreateInfo,
+            .sampleShadingEnable = VK_FALSE,
+            .rasterizationSamples = vk::SampleCountFlagBits::e1,
+            .minSampleShading = 1.0f,
+            .pSampleMask = nullptr,
+            .alphaToCoverageEnable = VK_FALSE,
+            .alphaToOneEnable = VK_FALSE
+        };
+
+        vk::PipelineColorBlendAttachmentState colorBlendAttachment {
+            .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
+            .blendEnable = VK_FALSE,
+            .srcColorBlendFactor = vk::BlendFactor::eOne,
+            .dstColorBlendFactor = vk::BlendFactor::eZero,
+            .colorBlendOp = vk::BlendOp::eAdd,
+            .srcAlphaBlendFactor = vk::BlendFactor::eOne,
+            .dstAlphaBlendFactor = vk::BlendFactor::eZero,
+            .alphaBlendOp = vk::BlendOp::eAdd,
+        };
+
+        vk::PipelineColorBlendStateCreateInfo colorBlending{
+            .sType = vk::StructureType::ePipelineColorBlendStateCreateInfo,
+            .logicOpEnable = VK_FALSE,
+            .logicOp = vk::LogicOp::eCopy,
+            .attachmentCount = 1,
+            .pAttachments = &colorBlendAttachment,
+            //.blendConstants[0] = 0.0f
+        };
+
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{
+            .sType = vk::StructureType::ePipelineLayoutCreateInfo,
+            .setLayoutCount = 0,
+            .pSetLayouts = nullptr,
+            .pushConstantRangeCount = 0,
+            .pPushConstantRanges = nullptr
+        };
+
+        pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
+
 
         device.destroyShaderModule(vertexShaderModule);
         device.destroyShaderModule(fragmentShaderModule);
