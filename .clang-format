@@ -1,0 +1,6 @@
+{
+  BasedOnStyle: Chromium,
+  SortIncludes: false,
+  IndentWidth: 4,
+  ColumnLimit: 120,
+}

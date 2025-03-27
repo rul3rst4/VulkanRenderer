@@ -1,5 +1,5 @@
 # create a CMake project
-cmake_minimum_required(VERSION 3.31.6)
+cmake_minimum_required(VERSION 3.30.5)
 project(VulkanTutorial)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

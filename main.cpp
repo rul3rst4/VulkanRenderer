@@ -46,7 +46,7 @@ static std::vector<char> readFile(const std::string& fileName) {
     return buffer;
 }
 
-class HelloTiangle {
+class HelloTriangle {
    private:
     std::unique_ptr<GLFWwindow, decltype(&::glfwDestroyWindow)> window;
     static inline constexpr int width = 800;
@@ -80,6 +80,10 @@ class HelloTiangle {
     vk::Pipeline graphicsPipeline;
     vk::CommandPool commandPool;
     vk::CommandBuffer commandBuffer;
+    vk::Semaphore imageAvailableSemaphore;
+    vk::Semaphore renderFinishedSemaphore;
+    vk::Fence inFlightFence;
+
     std::vector<vk::Image> swapChainImages;
     std::vector<vk::ImageView> swapChainImageViews;
     std::vector<vk::Framebuffer> swapChainFramebuffers;
@@ -97,6 +101,18 @@ class HelloTiangle {
         createFramebuffers();
         createCommandPool();
         createCommandBuffer();
+        createSyncObjects();
+    }
+
+    void createSyncObjects() {
+        vk::SemaphoreCreateInfo semaphoreInfo{.sType = vk::StructureType::eSemaphoreCreateInfo};
+
+        vk::FenceCreateInfo fenceInfo{.sType = vk::StructureType::eFenceCreateInfo,
+                                      .flags = vk::FenceCreateFlagBits::eSignaled};
+
+        imageAvailableSemaphore = device.createSemaphore(semaphoreInfo);
+        renderFinishedSemaphore = device.createSemaphore(semaphoreInfo);
+        inFlightFence = device.createFence(fenceInfo);
     }
 
     void recordCommandBuffer(vk::CommandBuffer& commandBuffer, uint32_t imageIndex) {
@@ -190,11 +206,22 @@ class HelloTiangle {
                                        .colorAttachmentCount = 1,
                                        .pColorAttachments = &colorAttachmentRef};
 
+        vk::SubpassDependency dependency{
+            .srcSubpass = vk::SubpassExternal,
+            .dstSubpass = 0,
+            .srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput,
+            .srcAccessMask = vk::AccessFlagBits::eNone,
+            .dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput,
+            .dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
+        };
+
         vk::RenderPassCreateInfo renderPassInfo{.sType = vk::StructureType::eRenderPassCreateInfo,
                                                 .attachmentCount = 1,
                                                 .pAttachments = &colorAttachment,
                                                 .subpassCount = 1,
-                                                .pSubpasses = &subpass};
+                                                .pSubpasses = &subpass,
+                                                .dependencyCount = 1,
+                                                .pDependencies = &dependency};
 
         renderPass = device.createRenderPass(renderPassInfo);
     }
@@ -678,7 +705,50 @@ class HelloTiangle {
     void mainLoop() {
         while (!glfwWindowShouldClose(window.get())) {
             glfwPollEvents();
+            drawFrame();
         }
+
+        device.waitIdle();
+    }
+
+    void drawFrame() {
+        auto waitFencesResult = device.waitForFences(1, &inFlightFence, VK_TRUE, UINT64_MAX);
+        vk::detail::resultCheck(waitFencesResult, "failed to wait inflightFences.");
+        auto resetFencesResult = device.resetFences(1, &inFlightFence);
+        vk::detail::resultCheck(resetFencesResult, "failed to reset inflightFences.");
+
+        uint32_t imageIndex = device.acquireNextImageKHR(swapChain, UINT64_MAX, imageAvailableSemaphore, nullptr).value;
+
+        commandBuffer.reset();
+        recordCommandBuffer(commandBuffer, imageIndex);
+
+        vk::Semaphore waitSemaphores[] = {imageAvailableSemaphore};
+        vk::PipelineStageFlags waitStages[] = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
+        vk::Semaphore signalSemaphores[] = {renderFinishedSemaphore};
+        vk::SubmitInfo submitInfo{.sType = vk::StructureType::eSubmitInfo,
+                                  .waitSemaphoreCount = 1,
+                                  .pWaitSemaphores = waitSemaphores,
+                                  .pWaitDstStageMask = waitStages,
+                                  .commandBufferCount = 1,
+                                  .pCommandBuffers = &commandBuffer,
+                                  .signalSemaphoreCount = 1,
+                                  .pSignalSemaphores = signalSemaphores};
+
+        auto submitResult = graphicsQueue.submit(1, &submitInfo, inFlightFence);
+        vk::detail::resultCheck(submitResult, "failed to submit command to graphicsQueue.");
+
+        vk::SwapchainKHR swapChains[] = {swapChain};
+
+        vk::PresentInfoKHR presentInfo{.sType = vk::StructureType::ePresentInfoKHR,
+                                       .waitSemaphoreCount = 1,
+                                       .pWaitSemaphores = signalSemaphores,
+                                       .swapchainCount = 1,
+                                       .pSwapchains = swapChains,
+                                       .pImageIndices = &imageIndex,
+                                       .pResults = nullptr};
+
+        auto presentResult = presenteQueue.presentKHR(&presentInfo);
+        vk::detail::resultCheck(presentResult, "Error presenting image");
     }
 
     void cleanup() { glfwTerminate(); }
@@ -691,9 +761,9 @@ class HelloTiangle {
     }
 
    public:
-    explicit HelloTiangle()
+    explicit HelloTriangle()
         : window(std::unique_ptr<GLFWwindow, decltype(&::glfwDestroyWindow)>(nullptr, &::glfwDestroyWindow)) {}
-    ~HelloTiangle() {}
+    ~HelloTriangle() {}
 
     void run() {
         initWindow();
@@ -704,7 +774,7 @@ class HelloTiangle {
 };
 
 int main() {
-    HelloTiangle app;
+    HelloTriangle app;
 
     try {
         app.run();
