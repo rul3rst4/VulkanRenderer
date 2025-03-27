@@ -49,15 +49,16 @@ static std::vector<char> readFile(const std::string& fileName) {
 class HelloTriangle {
    private:
     std::unique_ptr<GLFWwindow, decltype(&::glfwDestroyWindow)> window;
-    static inline constexpr int width = 800;
-    static inline constexpr int height = 600;
+    static constexpr int width = 800;
+    static constexpr int height = 600;
     const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
     const std::vector<const char*> deviceExtensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         "VK_KHR_portability_subset"};  // Ativei VK_KHR_portability_subset a pedido da camada de validação e
                                        // documentação, que diz que quando o dispositivo fisico suporta essa extensão,
                                        // ela sempre deve ser ativada.
-    static inline constexpr bool enableValidationLayers = [] {
+    static constexpr int maxFramesInFlight = 2;
+    static constexpr bool enableValidationLayers = [] {
 #ifdef NDEBUG
         return false;
 #else
@@ -79,15 +80,17 @@ class HelloTriangle {
     vk::PipelineLayout pipelineLayout;
     vk::Pipeline graphicsPipeline;
     vk::CommandPool commandPool;
-    vk::CommandBuffer commandBuffer;
-    vk::Semaphore imageAvailableSemaphore;
-    vk::Semaphore renderFinishedSemaphore;
-    vk::Fence inFlightFence;
 
+    std::vector<vk::Fence> inFlightFences;
+    std::vector<vk::Semaphore> imageAvailableSemaphores;
+    std::vector<vk::Semaphore> renderFinishedSemaphores;
+    std::vector<vk::CommandBuffer> commandBuffers;
     std::vector<vk::Image> swapChainImages;
     std::vector<vk::ImageView> swapChainImageViews;
     std::vector<vk::Framebuffer> swapChainFramebuffers;
     // TODO: Destruir tudo. Ou criando unique_ptrs ou usando vk_raii
+
+    uint32_t currentFrame{};
 
     void initVulkan() {
         createVkInstance();
@@ -100,19 +103,25 @@ class HelloTriangle {
         createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
-        createCommandBuffer();
+        createCommandBuffers();
         createSyncObjects();
     }
 
     void createSyncObjects() {
+        imageAvailableSemaphores.resize(maxFramesInFlight);
+        renderFinishedSemaphores.resize(maxFramesInFlight);
+        inFlightFences.resize(maxFramesInFlight);
+
         vk::SemaphoreCreateInfo semaphoreInfo{.sType = vk::StructureType::eSemaphoreCreateInfo};
 
         vk::FenceCreateInfo fenceInfo{.sType = vk::StructureType::eFenceCreateInfo,
                                       .flags = vk::FenceCreateFlagBits::eSignaled};
 
-        imageAvailableSemaphore = device.createSemaphore(semaphoreInfo);
-        renderFinishedSemaphore = device.createSemaphore(semaphoreInfo);
-        inFlightFence = device.createFence(fenceInfo);
+        for (size_t i = 0; i < maxFramesInFlight; i++) {
+            imageAvailableSemaphores[i] = device.createSemaphore(semaphoreInfo);
+            renderFinishedSemaphores[i] = device.createSemaphore(semaphoreInfo);
+            inFlightFences[i] = device.createFence(fenceInfo);
+        }
     }
 
     void recordCommandBuffer(vk::CommandBuffer& commandBuffer, uint32_t imageIndex) {
@@ -152,14 +161,13 @@ class HelloTriangle {
         commandBuffer.end();
     }
 
-    void createCommandBuffer() {
+    void createCommandBuffers() {
         vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
                                                 .commandPool = commandPool,
                                                 .level = vk::CommandBufferLevel::ePrimary,
-                                                .commandBufferCount = 1};
+                                                .commandBufferCount = static_cast<uint32_t>(maxFramesInFlight)};
 
-        auto x = device.allocateCommandBuffers(allocInfo);
-        commandBuffer = x[0];
+        commandBuffers = device.allocateCommandBuffers(allocInfo);
     }
 
     void createCommandPool() {
@@ -712,29 +720,30 @@ class HelloTriangle {
     }
 
     void drawFrame() {
-        auto waitFencesResult = device.waitForFences(1, &inFlightFence, VK_TRUE, UINT64_MAX);
+        auto waitFencesResult = device.waitForFences(1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
         vk::detail::resultCheck(waitFencesResult, "failed to wait inflightFences.");
-        auto resetFencesResult = device.resetFences(1, &inFlightFence);
+        auto resetFencesResult = device.resetFences(1, &inFlightFences[currentFrame]);
         vk::detail::resultCheck(resetFencesResult, "failed to reset inflightFences.");
 
-        uint32_t imageIndex = device.acquireNextImageKHR(swapChain, UINT64_MAX, imageAvailableSemaphore, nullptr).value;
+        uint32_t imageIndex =
+            device.acquireNextImageKHR(swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], nullptr).value;
 
-        commandBuffer.reset();
-        recordCommandBuffer(commandBuffer, imageIndex);
+        commandBuffers[currentFrame].reset();
+        recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
-        vk::Semaphore waitSemaphores[] = {imageAvailableSemaphore};
+        vk::Semaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
         vk::PipelineStageFlags waitStages[] = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
-        vk::Semaphore signalSemaphores[] = {renderFinishedSemaphore};
+        vk::Semaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
         vk::SubmitInfo submitInfo{.sType = vk::StructureType::eSubmitInfo,
                                   .waitSemaphoreCount = 1,
                                   .pWaitSemaphores = waitSemaphores,
                                   .pWaitDstStageMask = waitStages,
                                   .commandBufferCount = 1,
-                                  .pCommandBuffers = &commandBuffer,
+                                  .pCommandBuffers = &commandBuffers[currentFrame],
                                   .signalSemaphoreCount = 1,
                                   .pSignalSemaphores = signalSemaphores};
 
-        auto submitResult = graphicsQueue.submit(1, &submitInfo, inFlightFence);
+        auto submitResult = graphicsQueue.submit(1, &submitInfo, inFlightFences[currentFrame]);
         vk::detail::resultCheck(submitResult, "failed to submit command to graphicsQueue.");
 
         vk::SwapchainKHR swapChains[] = {swapChain};
@@ -749,6 +758,7 @@ class HelloTriangle {
 
         auto presentResult = presenteQueue.presentKHR(&presentInfo);
         vk::detail::resultCheck(presentResult, "Error presenting image");
+        currentFrame = (currentFrame + 1) % maxFramesInFlight;
     }
 
     void cleanup() { glfwTerminate(); }
