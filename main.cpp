@@ -6,8 +6,6 @@
 #include <GLFW/glfw3.h>
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/vec4.hpp>
-#include <glm/mat4x4.hpp>
 
 #include <iostream>
 #include <memory>
@@ -22,7 +20,7 @@ struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presenteFamily;
 
-    bool isComplete() { return graphicsFamily.has_value() && presenteFamily.has_value(); }
+    [[nodiscard]] bool isComplete() const { return graphicsFamily.has_value() && presenteFamily.has_value(); }
 };
 
 struct SwapChainSupportDetails {
@@ -38,7 +36,7 @@ static std::vector<char> readFile(const std::string& fileName) {
         throw std::runtime_error("failed to open file!");
     }
 
-    int64_t fileSize = file.tellg();
+    const int64_t fileSize = file.tellg();
 
     if (fileSize < 0) {
         throw std::runtime_error("file size is negative or error occurred!");
@@ -114,12 +112,12 @@ class HelloTriangle {
         createSyncObjects();
     }
 
-    void cleanupSwapChain() {
-        for (auto& framebuffer: swapChainFramebuffers) {
+    void cleanupSwapChain() const {
+        for (auto& framebuffer : swapChainFramebuffers) {
             device.destroyFramebuffer(framebuffer);
         }
 
-        for (auto& imageView: swapChainImageViews) {
+        for (auto& imageView : swapChainImageViews) {
             device.destroyImageView(imageView);
         }
 
@@ -149,10 +147,10 @@ class HelloTriangle {
         renderFinishedSemaphores.resize(maxFramesInFlight);
         inFlightFences.resize(maxFramesInFlight);
 
-        vk::SemaphoreCreateInfo semaphoreInfo{.sType = vk::StructureType::eSemaphoreCreateInfo};
+        constexpr vk::SemaphoreCreateInfo semaphoreInfo{.sType = vk::StructureType::eSemaphoreCreateInfo};
 
-        vk::FenceCreateInfo fenceInfo{.sType = vk::StructureType::eFenceCreateInfo,
-                                      .flags = vk::FenceCreateFlagBits::eSignaled};
+        constexpr vk::FenceCreateInfo fenceInfo{.sType = vk::StructureType::eFenceCreateInfo,
+                                                .flags = vk::FenceCreateFlagBits::eSignaled};
 
         for (size_t i = 0; i < maxFramesInFlight; i++) {
             imageAvailableSemaphores[i] = device.createSemaphore(semaphoreInfo);
@@ -161,36 +159,36 @@ class HelloTriangle {
         }
     }
 
-    void recordCommandBuffer(vk::CommandBuffer& commandBuffer, uint32_t imageIndex) {
-        vk::CommandBufferBeginInfo beginInfo{.sType = vk::StructureType::eCommandBufferBeginInfo,
-                                             // .flags = 0,
-                                             .pInheritanceInfo = nullptr};
+    void recordCommandBuffer(const vk::CommandBuffer& commandBuffer, const uint32_t imageIndex) const {
+        constexpr vk::CommandBufferBeginInfo beginInfo{.sType = vk::StructureType::eCommandBufferBeginInfo,
+                                                       // .flags = 0,
+                                                       .pInheritanceInfo = nullptr};
 
         commandBuffer.begin(beginInfo);
 
         vk::ClearValue clearColor = {.color.float32 = std::array<float, 4>{1.0f, 1.0f, 1.0f, 1.0f}};
 
-        vk::RenderPassBeginInfo renderPassInfo{.sType = vk::StructureType::eRenderPassBeginInfo,
-                                               .renderPass = renderPass,
-                                               .framebuffer = swapChainFramebuffers[imageIndex],
-                                               .renderArea.offset = {0, 0},
-                                               .renderArea.extent = swapChainExtent,
-                                               .clearValueCount = 1,
-                                               .pClearValues = &clearColor};
+        const vk::RenderPassBeginInfo renderPassInfo{.sType = vk::StructureType::eRenderPassBeginInfo,
+                                                     .renderPass = renderPass,
+                                                     .framebuffer = swapChainFramebuffers[imageIndex],
+                                                     .renderArea.offset = {0, 0},
+                                                     .renderArea.extent = swapChainExtent,
+                                                     .clearValueCount = 1,
+                                                     .pClearValues = &clearColor};
 
         commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
 
-        vk::Viewport viewport{.x = 0.0f,
-                              .y = 0.0f,
-                              .width = static_cast<float>(swapChainExtent.width),
-                              .height = static_cast<float>(swapChainExtent.height),
-                              .minDepth = 0.0f,
-                              .maxDepth = 1.0f};
+        const vk::Viewport viewport{.x = 0.0f,
+                                    .y = 0.0f,
+                                    .width = static_cast<float>(swapChainExtent.width),
+                                    .height = static_cast<float>(swapChainExtent.height),
+                                    .minDepth = 0.0f,
+                                    .maxDepth = 1.0f};
 
         commandBuffer.setViewport(0, 1, &viewport);
 
-        vk::Rect2D scissor{.offset = {0, 0}, .extent = swapChainExtent};
+        const vk::Rect2D scissor{.offset = {0, 0}, .extent = swapChainExtent};
         commandBuffer.setScissor(0, 1, &scissor);
 
         commandBuffer.draw(3, 1, 0, 0);
@@ -208,7 +206,7 @@ class HelloTriangle {
     }
 
     void createCommandPool() {
-        auto queueFamilyIndices = findQueueFamilies(physicalDevice);
+        const auto queueFamilyIndices = findQueueFamilies(physicalDevice);
 
         vk::CommandPoolCreateInfo poolInfo{.sType = vk::StructureType::eCommandPoolCreateInfo,
                                            .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
@@ -260,13 +258,13 @@ class HelloTriangle {
             .dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
         };
 
-        vk::RenderPassCreateInfo renderPassInfo{.sType = vk::StructureType::eRenderPassCreateInfo,
-                                                .attachmentCount = 1,
-                                                .pAttachments = &colorAttachment,
-                                                .subpassCount = 1,
-                                                .pSubpasses = &subpass,
-                                                .dependencyCount = 1,
-                                                .pDependencies = &dependency};
+        const vk::RenderPassCreateInfo renderPassInfo{.sType = vk::StructureType::eRenderPassCreateInfo,
+                                                      .attachmentCount = 1,
+                                                      .pAttachments = &colorAttachment,
+                                                      .subpassCount = 1,
+                                                      .pSubpasses = &subpass,
+                                                      .dependencyCount = 1,
+                                                      .pDependencies = &dependency};
 
         renderPass = device.createRenderPass(renderPassInfo);
     }
@@ -415,10 +413,10 @@ class HelloTriangle {
         device.destroyShaderModule(fragmentShaderModule);
     }
 
-    vk::ShaderModule createShaderModule(const std::vector<char>& code) {
-        vk::ShaderModuleCreateInfo createInfo{.sType = vk::StructureType::eShaderModuleCreateInfo,
-                                              .codeSize = code.size(),
-                                              .pCode = reinterpret_cast<const uint32_t*>(code.data())};
+    [[nodiscard]] vk::ShaderModule createShaderModule(const std::vector<char>& code) const {
+        const vk::ShaderModuleCreateInfo createInfo{.sType = vk::StructureType::eShaderModuleCreateInfo,
+                                                    .codeSize = code.size(),
+                                                    .pCode = reinterpret_cast<const uint32_t*>(code.data())};
 
         return device.createShaderModule(createInfo);
     }
@@ -457,10 +455,10 @@ class HelloTriangle {
     }
 
     void createLogicalDevice() {
-        auto indices = findQueueFamilies(physicalDevice);
+        auto [graphicsFamily, presenteFamily] = findQueueFamilies(physicalDevice);
 
         std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presenteFamily.value()};
+        std::set<uint32_t> uniqueQueueFamilies = {graphicsFamily.value(), presenteFamily.value()};
 
         float queuePriority = 1.0f;
 
@@ -483,40 +481,39 @@ class HelloTriangle {
                                         .ppEnabledExtensionNames = deviceExtensions.data()};
 
         device = physicalDevice.createDevice(createInfo);
-        graphicsQueue = device.getQueue(indices.graphicsFamily.value(), 0);
-        presenteQueue = device.getQueue(indices.presenteFamily.value(), 0);
+        graphicsQueue = device.getQueue(graphicsFamily.value(), 0);
+        presenteQueue = device.getQueue(presenteFamily.value(), 0);
     }
 
     void createSwapChain() {
-        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+        const auto [capabilities, formats, presenteModes] = querySwapChainSupport(physicalDevice);
 
-        auto surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
-        auto presenteMode = chooseSwapPresentMode(swapChainSupport.presenteModes);
-        auto extent = chooseSwapExtent(swapChainSupport.capabilities);
+        const auto [format, colorSpace] = chooseSwapSurfaceFormat(formats);
+        const auto presenteMode = chooseSwapPresentMode(presenteModes);
+        const auto extent = chooseSwapExtent(capabilities);
 
-        swapChainImageFormat = surfaceFormat.format;
+        swapChainImageFormat = format;
         swapChainExtent = extent;
 
-        uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+        uint32_t imageCount = capabilities.minImageCount + 1;
 
-        if (swapChainSupport.capabilities.maxImageCount > 0 &&
-            imageCount > swapChainSupport.capabilities.maxImageCount) {
-            imageCount = swapChainSupport.capabilities.maxImageCount;
+        if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
+            imageCount = capabilities.maxImageCount;
         }
 
         vk::SwapchainCreateInfoKHR createInfo{.sType = vk::StructureType::eSwapchainCreateInfoKHR,
                                               .surface = surface,
                                               .minImageCount = imageCount,
-                                              .imageFormat = surfaceFormat.format,
-                                              .imageColorSpace = surfaceFormat.colorSpace,
+                                              .imageFormat = format,
+                                              .imageColorSpace = colorSpace,
                                               .imageExtent = extent,
                                               .imageArrayLayers = 1,
                                               .imageUsage = vk::ImageUsageFlagBits::eColorAttachment};
 
-        auto indices = findQueueFamilies(physicalDevice);
-        uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presenteFamily.value()};
+        const auto [graphicsFamily, presenteFamily] = findQueueFamilies(physicalDevice);
+        const uint32_t queueFamilyIndices[] = {graphicsFamily.value(), presenteFamily.value()};
 
-        if (indices.graphicsFamily != indices.presenteFamily) {
+        if (graphicsFamily != presenteFamily) {
             createInfo.imageSharingMode = vk::SharingMode::eConcurrent;
             createInfo.queueFamilyIndexCount = 2;
             createInfo.pQueueFamilyIndices = queueFamilyIndices;
@@ -536,9 +533,9 @@ class HelloTriangle {
     }
 
     void pickPhysicalDevice() {
-        auto devices = instance.enumeratePhysicalDevices();
+        const auto devices = instance.enumeratePhysicalDevices();
 
-        if (devices.size() == 0) {
+        if (devices.empty()) {
             throw std::runtime_error("failed to find GPUs with Vulkan support!");
         }
 
@@ -552,16 +549,16 @@ class HelloTriangle {
         throw std::runtime_error("failed to find a suitable GPU!");
     }
 
-    bool isDeviceSuitable(const vk::PhysicalDevice& device) {
+    bool isDeviceSuitable(const vk::PhysicalDevice& device) const {
         // auto properties = device.getProperties();
         // auto features = device.getFeatures();
-        auto indices = findQueueFamilies(device);
+        const auto indices = findQueueFamilies(device);
 
-        auto extensionsSupported = checkDeviceExtensionSupport(device);
+        const auto extensionsSupported = checkDeviceExtensionSupport(device);
 
-        auto swapChainAdequate = [&]() {
+        const auto swapChainAdequate = [&]() {
             if (extensionsSupported) {
-                auto swapChainSupport = querySwapChainSupport(device);
+                const auto swapChainSupport = querySwapChainSupport(device);
                 return !swapChainSupport.formats.empty() && !swapChainSupport.presenteModes.empty();
             }
 
@@ -571,7 +568,7 @@ class HelloTriangle {
         return indices.isComplete() && extensionsSupported && swapChainAdequate;
     }
 
-    vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& availableFormats) {
+    static vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& availableFormats) {
         for (const auto& availableFormat : availableFormats) {
             if (availableFormat.format == vk::Format::eB8G8R8A8Srgb) {
                 return availableFormat;
@@ -581,7 +578,7 @@ class HelloTriangle {
         return availableFormats[0];
     }
 
-    vk::PresentModeKHR chooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& availablePresenteModes) {
+    static vk::PresentModeKHR chooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& availablePresenteModes) {
         for (const auto& availablePresentMode : availablePresenteModes) {
             if (availablePresentMode == vk::PresentModeKHR::eMailbox) {
                 return availablePresentMode;
@@ -591,35 +588,35 @@ class HelloTriangle {
         return vk::PresentModeKHR::eFifo;
     }
 
-    vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities) {
+    [[nodiscard]] vk::Extent2D chooseSwapExtent(const vk::SurfaceCapabilitiesKHR& capabilities) const {
         if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
             return capabilities.currentExtent;
-        } else {
-            int width, height;
-            glfwGetFramebufferSize(window.get(), &width, &height);
-
-            vk::Extent2D actualExtent{
-                .width = static_cast<uint32_t>(width),
-                .height = static_cast<uint32_t>(height),
-            };
-
-            actualExtent.width =
-                std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-            actualExtent.height =
-                std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
-
-            return actualExtent;
         }
+
+        int width, height;
+        glfwGetFramebufferSize(window.get(), &width, &height);
+
+        vk::Extent2D actualExtent{
+            .width = static_cast<uint32_t>(width),
+            .height = static_cast<uint32_t>(height),
+        };
+
+        actualExtent.width =
+            std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+        actualExtent.height =
+            std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+
+        return actualExtent;
     }
 
-    SwapChainSupportDetails querySwapChainSupport(const vk::PhysicalDevice& device) {
+    [[nodiscard]] SwapChainSupportDetails querySwapChainSupport(const vk::PhysicalDevice& device) const {
         return SwapChainSupportDetails{.capabilities = device.getSurfaceCapabilitiesKHR(surface),
                                        .formats = device.getSurfaceFormatsKHR(surface),
                                        .presenteModes = device.getSurfacePresentModesKHR(surface)};
     }
 
-    bool checkDeviceExtensionSupport(const vk::PhysicalDevice& device) {
-        auto availableExtensions = device.enumerateDeviceExtensionProperties();
+    [[nodiscard]] bool checkDeviceExtensionSupport(const vk::PhysicalDevice& device) const {
+        const auto availableExtensions = device.enumerateDeviceExtensionProperties();
 
         std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
 
@@ -634,8 +631,8 @@ class HelloTriangle {
         return requiredExtensions.empty();
     }
 
-    QueueFamilyIndices findQueueFamilies(const vk::PhysicalDevice& device) {
-        auto queueFamilies = device.getQueueFamilyProperties();
+    [[nodiscard]] QueueFamilyIndices findQueueFamilies(const vk::PhysicalDevice& device) const {
+        const auto queueFamilies = device.getQueueFamilyProperties();
         QueueFamilyIndices indices;
 
         uint32_t i = 0;
@@ -644,7 +641,7 @@ class HelloTriangle {
                 indices.graphicsFamily = i;
             }
 
-            auto presentSupport =
+            const auto presentSupport =
                 device.getSurfaceSupportKHR(i, surface);  // Teoricamente podem ser filas diferentes, mas o ideal e mais
                                                           // comum, é que sejam as mesmas filas.
 
@@ -705,13 +702,13 @@ class HelloTriangle {
         printGlfwRequiredExtensions(glfwExtensions);
     }
 
-    void printGlfwRequiredExtensions(const std::vector<const char*> glfwExtensions) {
-        auto extensions = vk::enumerateInstanceExtensionProperties();
+    static void printGlfwRequiredExtensions(const std::vector<const char*>& glfwExtensions) {
+        const auto extensions = vk::enumerateInstanceExtensionProperties();
 
         fmt::println("Available extensions:");
 
-        for (const auto& extension : extensions) {
-            const char* extensionName{extension.extensionName.data()};
+        for (const auto& [extensionRawName, specVersion] : extensions) {
+            const char* extensionName{extensionRawName.data()};
             fmt::print("\t {}", extensionName);
 
             auto glfwRequiresExtension = std::ranges::any_of(
@@ -725,7 +722,7 @@ class HelloTriangle {
         }
     }
 
-    bool checkValidationLayersSupport() {
+    [[nodiscard]] bool checkValidationLayersSupport() const {
         auto availableLayers = vk::enumerateInstanceLayerProperties();
 
         for (const auto& layerName : validationLayers) {
@@ -741,7 +738,7 @@ class HelloTriangle {
         return true;
     }
 
-    void addMacSpecificExtensions(std::vector<const char*>& glfwExtensions) {
+    static void addMacSpecificExtensions(std::vector<const char*>& glfwExtensions) {
         // glfwExtensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME); Só é necessario no
         // Vulkan 1.0
         glfwExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
@@ -757,7 +754,8 @@ class HelloTriangle {
     }
 
     void drawFrame() {
-        vk::detail::resultCheck(device.waitForFences(1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX), "failed to wait inflightFences.");
+        vk::detail::resultCheck(device.waitForFences(1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX),
+                                "failed to wait inflightFences.");
 
         const auto nextImageResult =
             device.acquireNextImageKHR(swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], nullptr);
@@ -765,13 +763,14 @@ class HelloTriangle {
         if (nextImageResult.result == vk::Result::eErrorOutOfDateKHR) {
             recreateSwapChain();
             return;
-        } else if (nextImageResult.result != vk::Result::eSuccess && nextImageResult.result != vk::Result::eSuboptimalKHR) {
+        } else if (nextImageResult.result != vk::Result::eSuccess &&
+                   nextImageResult.result != vk::Result::eSuboptimalKHR) {
             vk::detail::resultCheck(nextImageResult.result, "Failed to acquire swap chain image!");
         }
 
-
         // Only reset the fence if we are submitting work
-        vk::detail::resultCheck(device.resetFences(1, &inFlightFences[currentFrame]), "failed to reset inflightFences.");
+        vk::detail::resultCheck(device.resetFences(1, &inFlightFences[currentFrame]),
+                                "failed to reset inflightFences.");
 
         uint32_t imageIndex = nextImageResult.value;
 
@@ -805,7 +804,8 @@ class HelloTriangle {
 
         const auto presentResult = presenteQueue.presentKHR(&presentInfo);
 
-        if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR || framebufferResized) {
+        if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR ||
+            framebufferResized) {
             framebufferResized = false;
             recreateSwapChain();
         } else {
@@ -834,7 +834,7 @@ class HelloTriangle {
    public:
     explicit HelloTriangle()
         : window(std::unique_ptr<GLFWwindow, decltype(&::glfwDestroyWindow)>(nullptr, &::glfwDestroyWindow)) {}
-    ~HelloTriangle() {}
+    ~HelloTriangle() = default;
 
     void run() {
         initWindow();
@@ -845,9 +845,8 @@ class HelloTriangle {
 };
 
 int main() {
-    HelloTriangle app;
-
     try {
+        HelloTriangle app;
         app.run();
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';
