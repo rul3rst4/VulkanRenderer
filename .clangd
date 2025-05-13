@@ -1,0 +1,29 @@
+InlayHints:
+  BlockEnd: No
+  Designators: Yes
+  Enabled: Yes
+  ParameterNames: Yes
+  DeducedTypes: Yes
+  TypeNameLimit: 0
+Hover:
+  ShowAKA: Yes
+CompileFlags:
+  Remove: [-Wc++98-compat, -Wc++98-compat-pedantic]
+  Add: [
+    -I/Users/andersonkulitch/VulkanSDK/1.4.309.0/macOS/include,
+    -Wunused-const-variable,
+    -Werror,
+    -Wunused,
+    -Wunused-member-function,
+    -Wshift-sign-overflow,
+    -Wall,
+    -Wextra,
+    -Wpedantic,
+    -Wconversion,
+    -Wsign-conversion,
+    -Wnon-virtual-dtor,
+    -Woverloaded-virtual,
+    -Wnull-dereference,
+    -Wdouble-promotion,
+    -Wformat=2
+    ]

@@ -1,3 +1,4 @@
+#include <exception>
 #define VULKAN_HPP_NO_CONSTRUCTORS  // Permite usar Designated Initializers pra construir os objetos.
 // #define VULKAN_HPP_NO_EXCEPTIONS // Retorna um result type pra ser tratado.
 // #define GLFW_INCLUDE_VULKAN
@@ -10,7 +11,6 @@
 
 #include <iostream>
 #include <memory>
-#include <format>
 #include <fmt/format.h>
 #include <algorithm>
 #include <optional>
@@ -38,7 +38,12 @@ static std::vector<char> readFile(const std::string& fileName) {
         throw std::runtime_error("failed to open file!");
     }
 
-    size_t fileSize = static_cast<size_t>(file.tellg());
+    int64_t fileSize = file.tellg();
+
+    if (fileSize < 0) {
+        throw std::runtime_error("file size is negative or error occurred!");
+    }
+
     std::vector<char> buffer(fileSize);
     file.seekg(0);  // volta para o começo do arquivo.
     file.read(buffer.data(), fileSize);
@@ -90,6 +95,8 @@ class HelloTriangle {
     std::vector<vk::Framebuffer> swapChainFramebuffers;
     // TODO: Destruir tudo. Ou criando unique_ptrs ou usando vk_raii
 
+    bool framebufferResized = false;
+
     uint32_t currentFrame{};
 
     void initVulkan() {
@@ -105,6 +112,36 @@ class HelloTriangle {
         createCommandPool();
         createCommandBuffers();
         createSyncObjects();
+    }
+
+    void cleanupSwapChain() {
+        for (auto& framebuffer: swapChainFramebuffers) {
+            device.destroyFramebuffer(framebuffer);
+        }
+
+        for (auto& imageView: swapChainImageViews) {
+            device.destroyImageView(imageView);
+        }
+
+        device.destroySwapchainKHR(swapChain);
+    }
+
+    void recreateSwapChain() {
+        int width{}, height{};
+        glfwGetFramebufferSize(window.get(), &width, &height);
+
+        while (width == 0 && height == 0) {
+            glfwGetFramebufferSize(window.get(), &width, &height);
+            glfwWaitEvents();
+        }
+
+        device.waitIdle();
+
+        cleanupSwapChain();
+
+        createSwapChain();
+        createImageViews();
+        createFramebuffers();
     }
 
     void createSyncObjects() {
@@ -601,7 +638,7 @@ class HelloTriangle {
         auto queueFamilies = device.getQueueFamilyProperties();
         QueueFamilyIndices indices;
 
-        int i = 0;
+        uint32_t i = 0;
         for (const auto& queueFamily : queueFamilies) {
             if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) {
                 indices.graphicsFamily = i;
@@ -720,13 +757,23 @@ class HelloTriangle {
     }
 
     void drawFrame() {
-        auto waitFencesResult = device.waitForFences(1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-        vk::detail::resultCheck(waitFencesResult, "failed to wait inflightFences.");
-        auto resetFencesResult = device.resetFences(1, &inFlightFences[currentFrame]);
-        vk::detail::resultCheck(resetFencesResult, "failed to reset inflightFences.");
+        vk::detail::resultCheck(device.waitForFences(1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX), "failed to wait inflightFences.");
 
-        uint32_t imageIndex =
-            device.acquireNextImageKHR(swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], nullptr).value;
+        const auto nextImageResult =
+            device.acquireNextImageKHR(swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], nullptr);
+
+        if (nextImageResult.result == vk::Result::eErrorOutOfDateKHR) {
+            recreateSwapChain();
+            return;
+        } else if (nextImageResult.result != vk::Result::eSuccess && nextImageResult.result != vk::Result::eSuboptimalKHR) {
+            vk::detail::resultCheck(nextImageResult.result, "Failed to acquire swap chain image!");
+        }
+
+
+        // Only reset the fence if we are submitting work
+        vk::detail::resultCheck(device.resetFences(1, &inFlightFences[currentFrame]), "failed to reset inflightFences.");
+
+        uint32_t imageIndex = nextImageResult.value;
 
         commandBuffers[currentFrame].reset();
         recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
@@ -743,7 +790,7 @@ class HelloTriangle {
                                   .signalSemaphoreCount = 1,
                                   .pSignalSemaphores = signalSemaphores};
 
-        auto submitResult = graphicsQueue.submit(1, &submitInfo, inFlightFences[currentFrame]);
+        const auto submitResult = graphicsQueue.submit(1, &submitInfo, inFlightFences[currentFrame]);
         vk::detail::resultCheck(submitResult, "failed to submit command to graphicsQueue.");
 
         vk::SwapchainKHR swapChains[] = {swapChain};
@@ -756,8 +803,15 @@ class HelloTriangle {
                                        .pImageIndices = &imageIndex,
                                        .pResults = nullptr};
 
-        auto presentResult = presenteQueue.presentKHR(&presentInfo);
-        vk::detail::resultCheck(presentResult, "Error presenting image");
+        const auto presentResult = presenteQueue.presentKHR(&presentInfo);
+
+        if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR || framebufferResized) {
+            framebufferResized = false;
+            recreateSwapChain();
+        } else {
+            vk::detail::resultCheck(presentResult, "Failed to present swap chain image!");
+        }
+
         currentFrame = (currentFrame + 1) % maxFramesInFlight;
     }
 
@@ -766,8 +820,15 @@ class HelloTriangle {
     void initWindow() {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
         window.reset(glfwCreateWindow(width, height, "Vulkan", nullptr, nullptr));
+        glfwSetWindowUserPointer(window.get(), this);
+        glfwSetFramebufferSizeCallback(window.get(), framebufferResizeCallback);
+    }
+
+    static void framebufferResizeCallback(GLFWwindow* window, int /* width */, int /* height */) {
+        const auto app = static_cast<HelloTriangle*>(glfwGetWindowUserPointer(window));
+        app->framebufferResized = true;
     }
 
    public:
