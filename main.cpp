@@ -7,6 +7,7 @@
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 
+#include <glm/glm.hpp>
 #include <iostream>
 #include <memory>
 #include <fmt/format.h>
@@ -15,6 +16,27 @@
 #include <set>
 #include <limits>
 #include <fstream>
+
+struct Vertex {
+    glm::vec2 pos;
+    glm::vec3 color;
+
+    constexpr static vk::VertexInputBindingDescription getBindingDescription() {
+        constexpr vk::VertexInputBindingDescription bindingDescription{
+            .binding = 0, .stride = sizeof(Vertex), .inputRate = vk::VertexInputRate::eVertex};
+
+        return bindingDescription;
+    }
+
+    constexpr static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        constexpr std::array<vk::VertexInputAttributeDescription, 2> attributeDescriptions{{
+            {.binding = 0, .location = 0, .format = vk::Format::eR32G32Sfloat, .offset = offsetof(Vertex, pos)},
+            {.binding = 0, .location = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, color)},
+        }};
+
+        return attributeDescriptions;
+    }
+};
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
@@ -83,6 +105,8 @@ class HelloTriangle {
     vk::PipelineLayout pipelineLayout;
     vk::Pipeline graphicsPipeline;
     vk::CommandPool commandPool;
+    vk::Buffer vertexBuffer;
+    vk::DeviceMemory vertexBufferMemory;
 
     std::vector<vk::Fence> inFlightFences;
     std::vector<vk::Semaphore> imageAvailableSemaphores;
@@ -97,6 +121,50 @@ class HelloTriangle {
 
     uint32_t currentFrame{};
 
+    static constexpr std::array<Vertex, 3> vertices = {{
+        {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    }};
+
+    void createVertexBuffer() {
+        constexpr vk::BufferCreateInfo bufferInfo{.sType = vk::StructureType::eBufferCreateInfo,
+                                                  .size = sizeof(vertices[0]) * vertices.size(),
+                                                  .usage = vk::BufferUsageFlagBits::eVertexBuffer,
+                                                  .sharingMode = vk::SharingMode::eExclusive};
+
+        vertexBuffer = device.createBuffer(bufferInfo);
+
+        const auto memRequirements = device.getBufferMemoryRequirements(vertexBuffer);
+
+        const vk::MemoryAllocateInfo allocInfo{
+            .sType = vk::StructureType::eMemoryAllocateInfo,
+            .allocationSize = memRequirements.size,
+            .memoryTypeIndex =
+                findMemoryType(memRequirements.memoryTypeBits,
+                               vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)};
+
+        vertexBufferMemory = device.allocateMemory(allocInfo);
+        device.bindBufferMemory(vertexBuffer, vertexBufferMemory, 0);
+
+        auto data = device.mapMemory(vertexBufferMemory, 0, bufferInfo.size);
+        memcpy(data, vertices.data(), (size_t)bufferInfo.size);
+        device.unmapMemory(vertexBufferMemory);
+    }
+
+    [[nodiscard]] uint32_t findMemoryType(const uint32_t typeFilter,
+                                          const vk::Flags<vk::MemoryPropertyFlagBits> properties) const {
+        const auto memProperties = physicalDevice.getMemoryProperties();
+
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+
+        throw std::runtime_error("failed to find suitable memory type!");
+    }
+
     void initVulkan() {
         createVkInstance();
         createSurface();
@@ -108,6 +176,7 @@ class HelloTriangle {
         createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
+        createVertexBuffer();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -179,6 +248,10 @@ class HelloTriangle {
         commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
 
+        const auto vertexBuffers = std::array{vertexBuffer};
+        constexpr std::array<vk::DeviceSize, 1> offsets{};
+        commandBuffer.bindVertexBuffers(0, 1, vertexBuffers.data(), offsets.data());
+
         const vk::Viewport viewport{.x = 0.0f,
                                     .y = 0.0f,
                                     .width = static_cast<float>(swapChainExtent.width),
@@ -191,16 +264,16 @@ class HelloTriangle {
         const vk::Rect2D scissor{.offset = {0, 0}, .extent = swapChainExtent};
         commandBuffer.setScissor(0, 1, &scissor);
 
-        commandBuffer.draw(3, 1, 0, 0);
+        commandBuffer.draw(vertices.size(), 1, 0, 0);
         commandBuffer.endRenderPass();
         commandBuffer.end();
     }
 
     void createCommandBuffers() {
-        vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
-                                                .commandPool = commandPool,
-                                                .level = vk::CommandBufferLevel::ePrimary,
-                                                .commandBufferCount = static_cast<uint32_t>(maxFramesInFlight)};
+        const vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
+                                                      .commandPool = commandPool,
+                                                      .level = vk::CommandBufferLevel::ePrimary,
+                                                      .commandBufferCount = static_cast<uint32_t>(maxFramesInFlight)};
 
         commandBuffers = device.allocateCommandBuffers(allocInfo);
     }
@@ -300,12 +373,15 @@ class HelloTriangle {
 
         vk::PipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
 
+        constexpr auto bindingDescription = Vertex::getBindingDescription();
+        constexpr auto attributeDescription = Vertex::getAttributeDescriptions();
+
         vk::PipelineVertexInputStateCreateInfo vertexInputCreateInfo{
             .sType = vk::StructureType::ePipelineVertexInputStateCreateInfo,
-            .vertexBindingDescriptionCount = 0,
-            .pVertexBindingDescriptions = nullptr,
-            .vertexAttributeDescriptionCount = 0,
-            .pVertexAttributeDescriptions = nullptr};
+            .vertexBindingDescriptionCount = 1,
+            .vertexAttributeDescriptionCount = attributeDescription.size(),
+            .pVertexBindingDescriptions = &bindingDescription,
+            .pVertexAttributeDescriptions = attributeDescription.data()};
 
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .sType = vk::StructureType::ePipelineInputAssemblyStateCreateInfo,
@@ -815,7 +891,12 @@ class HelloTriangle {
         currentFrame = (currentFrame + 1) % maxFramesInFlight;
     }
 
-    void cleanup() { glfwTerminate(); }
+    void cleanup() const {
+        glfwTerminate();
+
+        device.destroyBuffer(vertexBuffer);
+        device.freeMemory(vertexBufferMemory);
+    }
 
     void initWindow() {
         glfwInit();
