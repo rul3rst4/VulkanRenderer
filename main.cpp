@@ -127,29 +127,76 @@ class HelloTriangle {
         {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
     }};
 
-    void createVertexBuffer() {
-        constexpr vk::BufferCreateInfo bufferInfo{.sType = vk::StructureType::eBufferCreateInfo,
-                                                  .size = sizeof(vertices[0]) * vertices.size(),
-                                                  .usage = vk::BufferUsageFlagBits::eVertexBuffer,
-                                                  .sharingMode = vk::SharingMode::eExclusive};
+    void createBuffer(const vk::DeviceSize size,
+                      const vk::Flags<vk::BufferUsageFlagBits> usage,
+                      const vk::Flags<vk::MemoryPropertyFlagBits> properties,
+                      vk::Buffer& buffer,
+                      vk::DeviceMemory& bufferMemory) const {
+        const vk::BufferCreateInfo bufferInfo{.sType = vk::StructureType::eBufferCreateInfo,
+                                              .size = size,
+                                              .usage = usage,
+                                              .sharingMode = vk::SharingMode::eExclusive};
 
-        vertexBuffer = device.createBuffer(bufferInfo);
+        buffer = device.createBuffer(bufferInfo);
 
-        const auto memRequirements = device.getBufferMemoryRequirements(vertexBuffer);
+        const auto memRequirements = device.getBufferMemoryRequirements(buffer);
 
         const vk::MemoryAllocateInfo allocInfo{
             .sType = vk::StructureType::eMemoryAllocateInfo,
             .allocationSize = memRequirements.size,
-            .memoryTypeIndex =
-                findMemoryType(memRequirements.memoryTypeBits,
-                               vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)};
+            .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties)};
 
-        vertexBufferMemory = device.allocateMemory(allocInfo);
-        device.bindBufferMemory(vertexBuffer, vertexBufferMemory, 0);
+        bufferMemory = device.allocateMemory(allocInfo);
+        device.bindBufferMemory(buffer, bufferMemory, 0);
+    }
 
-        auto data = device.mapMemory(vertexBufferMemory, 0, bufferInfo.size);
-        memcpy(data, vertices.data(), (size_t)bufferInfo.size);
-        device.unmapMemory(vertexBufferMemory);
+    void createVertexBuffer() {
+        constexpr vk::DeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+
+        vk::Buffer stagingBuffer;
+        vk::DeviceMemory statingBufferMemory;
+
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc,
+                     vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+                     stagingBuffer, statingBufferMemory);
+
+        const auto data = device.mapMemory(statingBufferMemory, 0, bufferSize);
+        memcpy(data, vertices.data(), bufferSize);
+        device.unmapMemory(statingBufferMemory);
+
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
+                     vk::MemoryPropertyFlagBits::eDeviceLocal, vertexBuffer, vertexBufferMemory);
+
+        copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+        device.destroyBuffer(stagingBuffer);
+        device.freeMemory(statingBufferMemory);
+    }
+
+    void copyBuffer(const vk::Buffer srcBuffer, const vk::Buffer dstBuffer, const vk::DeviceSize size) const {
+        const vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
+                                                      .level = vk::CommandBufferLevel::ePrimary,
+                                                      .commandPool = commandPool,
+                                                      .commandBufferCount = 1};
+
+        auto commandBuffer = device.allocateCommandBuffers(allocInfo)[0];
+
+        constexpr vk::CommandBufferBeginInfo beginInfo{.sType = vk::StructureType::eCommandBufferBeginInfo,
+                                                       .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
+
+        commandBuffer.begin(beginInfo);
+
+        const vk::BufferCopy copyRegion{.srcOffset = 0, .dstOffset = 0, .size = size};
+
+        commandBuffer.copyBuffer(srcBuffer, dstBuffer, 1, &copyRegion);
+        commandBuffer.end();
+
+        const vk::SubmitInfo submitInfo{
+            .sType = vk::StructureType::eSubmitInfo, .commandBufferCount = 1, .pCommandBuffers = &commandBuffer};
+
+        vk::detail::resultCheck(graphicsQueue.submit(1, &submitInfo, nullptr),
+                                "Error submiting CopyBuffer commandBuffer");
+        graphicsQueue.waitIdle();
+        device.freeCommandBuffers(commandPool, 1, &commandBuffer);
     }
 
     [[nodiscard]] uint32_t findMemoryType(const uint32_t typeFilter,
