@@ -107,6 +107,8 @@ class HelloTriangle {
     vk::CommandPool commandPool;
     vk::Buffer vertexBuffer;
     vk::DeviceMemory vertexBufferMemory;
+    vk::Buffer indexBuffer;
+    vk::DeviceMemory indexBufferMemory;
 
     std::vector<vk::Fence> inFlightFences;
     std::vector<vk::Semaphore> imageAvailableSemaphores;
@@ -121,11 +123,53 @@ class HelloTriangle {
 
     uint32_t currentFrame{};
 
-    static constexpr std::array<Vertex, 3> vertices = {{
-        {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    static constexpr std::array<Vertex, 4> vertices = {{
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
     }};
+
+    static constexpr std::array<uint32_t, 6>  indices = {0, 1, 2, 2, 3, 0};
+
+    void initVulkan() {
+        createVkInstance();
+        createSurface();
+        pickPhysicalDevice();
+        createLogicalDevice();
+        createSwapChain();
+        createImageViews();
+        createRenderPass();
+        createGraphicsPipeline();
+        createFramebuffers();
+        createCommandPool();
+        createVertexBuffer();
+        createIndexBuffer();
+        createCommandBuffers();
+        createSyncObjects();
+    }
+
+    void createIndexBuffer() {
+        constexpr vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+
+        vk::Buffer stagingBuffer;
+        vk::DeviceMemory statingBufferMemory;
+
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc,
+                     vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+                     stagingBuffer, statingBufferMemory);
+
+        const auto data = device.mapMemory(statingBufferMemory, 0, bufferSize);
+        memcpy(data, indices.data(), bufferSize);
+        device.unmapMemory(statingBufferMemory);
+
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer,
+                     vk::MemoryPropertyFlagBits::eDeviceLocal, indexBuffer, indexBufferMemory);
+
+        copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+        device.destroyBuffer(stagingBuffer);
+        device.freeMemory(statingBufferMemory);
+    }
 
     void createBuffer(const vk::DeviceSize size,
                       const vk::Flags<vk::BufferUsageFlagBits> usage,
@@ -212,22 +256,6 @@ class HelloTriangle {
         throw std::runtime_error("failed to find suitable memory type!");
     }
 
-    void initVulkan() {
-        createVkInstance();
-        createSurface();
-        pickPhysicalDevice();
-        createLogicalDevice();
-        createSwapChain();
-        createImageViews();
-        createRenderPass();
-        createGraphicsPipeline();
-        createFramebuffers();
-        createCommandPool();
-        createVertexBuffer();
-        createCommandBuffers();
-        createSyncObjects();
-    }
-
     void cleanupSwapChain() const {
         for (auto& framebuffer : swapChainFramebuffers) {
             device.destroyFramebuffer(framebuffer);
@@ -297,7 +325,9 @@ class HelloTriangle {
 
         const auto vertexBuffers = std::array{vertexBuffer};
         constexpr std::array<vk::DeviceSize, 1> offsets{};
+
         commandBuffer.bindVertexBuffers(0, 1, vertexBuffers.data(), offsets.data());
+        commandBuffer.bindIndexBuffer(indexBuffer, 0, vk::IndexType::eUint32);
 
         const vk::Viewport viewport{.x = 0.0f,
                                     .y = 0.0f,
@@ -311,7 +341,8 @@ class HelloTriangle {
         const vk::Rect2D scissor{.offset = {0, 0}, .extent = swapChainExtent};
         commandBuffer.setScissor(0, 1, &scissor);
 
-        commandBuffer.draw(vertices.size(), 1, 0, 0);
+        // commandBuffer.draw(vertices.size(), 1, 0, 0); draw with vertex array only
+        commandBuffer.drawIndexed(indices.size(), 1, 0, 0, 0);
         commandBuffer.endRenderPass();
         commandBuffer.end();
     }
@@ -943,6 +974,9 @@ class HelloTriangle {
 
         device.destroyBuffer(vertexBuffer);
         device.freeMemory(vertexBufferMemory);
+
+        device.destroyBuffer(indexBuffer);
+        device.freeMemory(indexBufferMemory);
     }
 
     void initWindow() {
