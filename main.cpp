@@ -7,6 +7,8 @@
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <chrono>
@@ -122,6 +124,9 @@ class HelloTriangle {
     vk::Buffer indexBuffer;
     vk::DeviceMemory indexBufferMemory;
 
+    vk::Image textureImage;
+    vk::DeviceMemory textureImageMemory;
+
     vk::DescriptorPool descriptorPool;
     std::vector<vk::DescriptorSet> descriptorSets;
 
@@ -163,6 +168,7 @@ class HelloTriangle {
         createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
+        createTextureImage();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -170,6 +176,172 @@ class HelloTriangle {
         createDescriptorSets();
         createCommandBuffers();
         createSyncObjects();
+    }
+
+    void copyBufferToImage(const vk::Buffer buffer,
+                           const vk::Image image,
+                           const uint32_t width,
+                           const uint32_t height) const {
+        auto commandBuffer = beginSingleTimeCommands();
+
+        const vk::BufferImageCopy region{
+            .bufferOffset = 0,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource =
+                vk::ImageSubresourceLayers{
+                    .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1, .aspectMask = vk::ImageAspectFlagBits::eColor},
+            .imageOffset = {0, 0, 0},
+            .imageExtent = {width, height, 1},
+        };
+
+        commandBuffer.copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal, 1, &region);
+
+        endSingleTimeCommands(commandBuffer);
+    }
+
+    void transitionImageLayout(const vk::Image image,
+                               vk::Format /* format */,
+                               const vk::ImageLayout oldLayout,
+                               const vk::ImageLayout newLayout) const {
+        auto commandBuffer = beginSingleTimeCommands();
+
+        vk::PipelineStageFlagBits srcStage;
+        vk::PipelineStageFlagBits dstStage;
+
+        vk::ImageMemoryBarrier barrier{
+            .sType = vk::StructureType::eImageMemoryBarrier,
+            .oldLayout = oldLayout,
+            .newLayout = newLayout,
+            .srcQueueFamilyIndex = vk::QueueFamilyIgnored,
+            .dstQueueFamilyIndex = vk::QueueFamilyIgnored,
+            .image = image,
+            .subresourceRange = vk::ImageSubresourceRange{.aspectMask = vk::ImageAspectFlagBits::eColor,
+                                                          .baseMipLevel = 0,
+                                                          .levelCount = 1,
+                                                          .baseArrayLayer = 0,
+                                                          .layerCount = 1},
+        };
+
+        if (oldLayout == vk::ImageLayout::eUndefined && newLayout == vk::ImageLayout::eTransferDstOptimal) {
+            barrier.srcAccessMask = vk::AccessFlags{};
+            barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+
+            srcStage = vk::PipelineStageFlagBits::eTopOfPipe;
+            dstStage = vk::PipelineStageFlagBits::eTransfer;
+        } else if (oldLayout == vk::ImageLayout::eTransferDstOptimal &&
+                   newLayout == vk::ImageLayout::eShaderReadOnlyOptimal) {
+            barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
+            srcStage = vk::PipelineStageFlagBits::eTransfer;
+            dstStage = vk::PipelineStageFlagBits::eFragmentShader;
+        } else {
+            throw std::invalid_argument("unsupported layout transition!");
+        }
+
+        commandBuffer.pipelineBarrier(srcStage, dstStage, vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        endSingleTimeCommands(commandBuffer);
+    }
+
+    [[nodiscard]] vk::CommandBuffer beginSingleTimeCommands() const {
+        const vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
+                                                      .level = vk::CommandBufferLevel::ePrimary,
+                                                      .commandPool = commandPool,
+                                                      .commandBufferCount = 1};
+
+        const auto commandBuffer = device.allocateCommandBuffers(allocInfo)[0];
+
+        constexpr vk::CommandBufferBeginInfo beginInfo{.sType = vk::StructureType::eCommandBufferBeginInfo,
+                                                       .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
+
+        commandBuffer.begin(beginInfo);
+        return commandBuffer;
+    }
+
+    void endSingleTimeCommands(vk::CommandBuffer& commandBuffer) const {
+        commandBuffer.end();
+
+        const vk::SubmitInfo submitInfo{
+            .sType = vk::StructureType::eSubmitInfo, .commandBufferCount = 1, .pCommandBuffers = &commandBuffer};
+
+        vk::detail::resultCheck(graphicsQueue.submit(1, &submitInfo, nullptr),
+                                "Error submiting CopyBuffer commandBuffer");
+        graphicsQueue.waitIdle();
+        device.freeCommandBuffers(commandPool, 1, &commandBuffer);
+    }
+
+    void createImage(const uint32_t width,
+                     const uint32_t height,
+                     const vk::Format format,
+                     const vk::ImageTiling tiling,
+                     const vk::Flags<vk::ImageUsageFlagBits> usage,
+                     const vk::Flags<vk::MemoryPropertyFlagBits> properties,
+                     vk::Image& image,
+                     vk::DeviceMemory& imageMemory) const {
+        const vk::ImageCreateInfo imageInfo{
+            .sType = vk::StructureType::eImageCreateInfo,
+            .imageType = vk::ImageType::e2D,
+            .extent =
+                vk::Extent3D{
+                    .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height), .depth = 1},
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .format = format,
+            .tiling = tiling,
+            .initialLayout = vk::ImageLayout::eUndefined,
+            .usage = usage,
+            .sharingMode = vk::SharingMode::eExclusive,
+            .samples = vk::SampleCountFlagBits::e1,
+        };
+
+        image = device.createImage(imageInfo);
+        const auto memRequirements = device.getImageMemoryRequirements(image);
+
+        const vk::MemoryAllocateInfo allocInfo{
+            .sType = vk::StructureType::eMemoryAllocateInfo,
+            .allocationSize = memRequirements.size,
+            .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties)};
+
+        imageMemory = device.allocateMemory(allocInfo);
+        device.bindImageMemory(image, imageMemory, 0);
+    }
+
+    void createTextureImage() {
+        int texWidth, texHeight, texChannels;
+        stbi_uc* pixels = stbi_load("/Users/andersonkulitch/Documents/dev/vulkan/texture/texture.jpg", &texWidth,
+                                    &texHeight, &texChannels, STBI_rgb_alpha);
+        const vk::DeviceSize imageSize = texWidth * texHeight * 4;
+
+        if (!pixels) {
+            throw std::runtime_error("Failed to load texture image.");
+        }
+
+        vk::Buffer stagingBuffer;
+        vk::DeviceMemory stagingBufferMemory;
+        createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+                     vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+                     stagingBuffer, stagingBufferMemory);
+
+        const auto data = device.mapMemory(stagingBufferMemory, 0, imageSize);
+        memcpy(data, pixels, imageSize);
+        device.unmapMemory(stagingBufferMemory);
+
+        stbi_image_free(pixels);
+
+        createImage(texWidth, texHeight, vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
+                    vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
+                    vk::MemoryPropertyFlagBits::eDeviceLocal, textureImage, textureImageMemory);
+
+        transitionImageLayout(textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eTransferDstOptimal);
+        copyBufferToImage(stagingBuffer, textureImage, texWidth, texHeight);
+        transitionImageLayout(textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageLayout::eTransferDstOptimal,
+                              vk::ImageLayout::eShaderReadOnlyOptimal);
+
+        device.destroyBuffer(stagingBuffer);
+        device.freeMemory(stagingBufferMemory);
     }
 
     void createDescriptorSets() {
@@ -311,30 +483,13 @@ class HelloTriangle {
     }
 
     void copyBuffer(const vk::Buffer srcBuffer, const vk::Buffer dstBuffer, const vk::DeviceSize size) const {
-        const vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
-                                                      .level = vk::CommandBufferLevel::ePrimary,
-                                                      .commandPool = commandPool,
-                                                      .commandBufferCount = 1};
-
-        auto commandBuffer = device.allocateCommandBuffers(allocInfo)[0];
-
-        constexpr vk::CommandBufferBeginInfo beginInfo{.sType = vk::StructureType::eCommandBufferBeginInfo,
-                                                       .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
-
-        commandBuffer.begin(beginInfo);
+        auto commandBuffer = beginSingleTimeCommands();
 
         const vk::BufferCopy copyRegion{.srcOffset = 0, .dstOffset = 0, .size = size};
 
         commandBuffer.copyBuffer(srcBuffer, dstBuffer, 1, &copyRegion);
-        commandBuffer.end();
 
-        const vk::SubmitInfo submitInfo{
-            .sType = vk::StructureType::eSubmitInfo, .commandBufferCount = 1, .pCommandBuffers = &commandBuffer};
-
-        vk::detail::resultCheck(graphicsQueue.submit(1, &submitInfo, nullptr),
-                                "Error submiting CopyBuffer commandBuffer");
-        graphicsQueue.waitIdle();
-        device.freeCommandBuffers(commandPool, 1, &commandBuffer);
+        endSingleTimeCommands(commandBuffer);
     }
 
     [[nodiscard]] uint32_t findMemoryType(const uint32_t typeFilter,
@@ -1101,6 +1256,9 @@ class HelloTriangle {
 
         device.destroyDescriptorPool(descriptorPool);
         device.destroyDescriptorSetLayout(descriptorSetLayout);
+
+        device.destroyImage(textureImage);
+        device.freeMemory(textureImageMemory);
     }
 
     void initWindow() {
