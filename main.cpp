@@ -126,6 +126,8 @@ class HelloTriangle {
 
     vk::Image textureImage;
     vk::DeviceMemory textureImageMemory;
+    vk::ImageView textureImageView;
+    vk::Sampler textureSampler;
 
     vk::DescriptorPool descriptorPool;
     std::vector<vk::DescriptorSet> descriptorSets;
@@ -169,6 +171,8 @@ class HelloTriangle {
         createFramebuffers();
         createCommandPool();
         createTextureImage();
+        createTextureImageView();
+        createTextureSampler();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -177,6 +181,31 @@ class HelloTriangle {
         createCommandBuffers();
         createSyncObjects();
     }
+
+    void createTextureSampler() {
+        const auto properties = physicalDevice.getProperties();
+
+        const vk::SamplerCreateInfo samplerInfo{.sType = vk::StructureType::eSamplerCreateInfo,
+                                                .magFilter = vk::Filter::eLinear,
+                                                .minFilter = vk::Filter::eLinear,
+                                                .addressModeU = vk::SamplerAddressMode::eRepeat,
+                                                .addressModeV = vk::SamplerAddressMode::eRepeat,
+                                                .addressModeW = vk::SamplerAddressMode::eRepeat,
+                                                .anisotropyEnable = vk::True,
+                                                .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+                                                .borderColor = vk::BorderColor::eIntOpaqueBlack,
+                                                .unnormalizedCoordinates = vk::False,
+                                                .compareEnable = vk::False,
+                                                .compareOp = vk::CompareOp::eAlways,
+                                                .mipmapMode = vk::SamplerMipmapMode::eLinear,
+                                                .mipLodBias = 0.0f,
+                                                .minLod = 0.0f,
+                                                .maxLod = 0.0f};
+
+        textureSampler = device.createSampler(samplerInfo);
+    }
+
+    void createTextureImageView() { textureImageView = createImageView(textureImage, vk::Format::eR8G8B8A8Srgb); }
 
     void copyBufferToImage(const vk::Buffer buffer,
                            const vk::Image image,
@@ -829,27 +858,31 @@ class HelloTriangle {
         return device.createShaderModule(createInfo);
     }
 
+    [[nodiscard]] vk::ImageView createImageView(const vk::Image& image, const vk::Format format) const {
+        const vk::ImageViewCreateInfo createInfo{
+            .sType = vk::StructureType::eImageViewCreateInfo,
+            .image = image,
+            .viewType = vk::ImageViewType::e2D,
+            .format = format,
+            .components.r = vk::ComponentSwizzle::eIdentity,
+            .components.g = vk::ComponentSwizzle::eIdentity,
+            .components.b = vk::ComponentSwizzle::eIdentity,
+            .components.a = vk::ComponentSwizzle::eIdentity,
+            .subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor,
+            .subresourceRange.baseMipLevel = 0,
+            .subresourceRange.levelCount = 1,
+            .subresourceRange.baseArrayLayer = 0,
+            .subresourceRange.layerCount = 1,
+        };
+
+        return device.createImageView(createInfo);
+    }
+
     void createImageViews() {
         swapChainImageViews.resize(swapChainImages.size());
 
         for (size_t i = 0; i < swapChainImages.size(); i++) {
-            vk::ImageViewCreateInfo createInfo{
-                .sType = vk::StructureType::eImageViewCreateInfo,
-                .image = swapChainImages[i],
-                .viewType = vk::ImageViewType::e2D,
-                .format = swapChainImageFormat,
-                .components.r = vk::ComponentSwizzle::eIdentity,
-                .components.g = vk::ComponentSwizzle::eIdentity,
-                .components.b = vk::ComponentSwizzle::eIdentity,
-                .components.a = vk::ComponentSwizzle::eIdentity,
-                .subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor,
-                .subresourceRange.baseMipLevel = 0,
-                .subresourceRange.levelCount = 1,
-                .subresourceRange.baseArrayLayer = 0,
-                .subresourceRange.layerCount = 1,
-            };
-
-            swapChainImageViews[i] = device.createImageView(createInfo);
+            swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
         }
     }
 
@@ -879,7 +912,7 @@ class HelloTriangle {
             queueCreateInfos.emplace_back(queueCreateInfo);
         }
 
-        vk::PhysicalDeviceFeatures deviceFeatures{};
+        vk::PhysicalDeviceFeatures deviceFeatures{.samplerAnisotropy = vk::True};
 
         vk::DeviceCreateInfo createInfo{.sType = vk::StructureType::eDeviceCreateInfo,
                                         .pQueueCreateInfos = queueCreateInfos.data(),
@@ -957,11 +990,12 @@ class HelloTriangle {
         throw std::runtime_error("failed to find a suitable GPU!");
     }
 
-    bool isDeviceSuitable(const vk::PhysicalDevice& device) const {
+    [[nodiscard]] bool isDeviceSuitable(const vk::PhysicalDevice& device) const {
         // auto properties = device.getProperties();
         // auto features = device.getFeatures();
         const auto indices = findQueueFamilies(device);
 
+        const auto supportedFeatures = device.getFeatures();
         const auto extensionsSupported = checkDeviceExtensionSupport(device);
 
         const auto swapChainAdequate = [&]() {
@@ -973,7 +1007,7 @@ class HelloTriangle {
             return false;
         }();
 
-        return indices.isComplete() && extensionsSupported && swapChainAdequate;
+        return indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
     }
 
     static vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR>& availableFormats) {
@@ -1257,6 +1291,8 @@ class HelloTriangle {
         device.destroyDescriptorPool(descriptorPool);
         device.destroyDescriptorSetLayout(descriptorSetLayout);
 
+        device.destroySampler(textureSampler);
+        device.destroyImageView(textureImageView);
         device.destroyImage(textureImage);
         device.freeMemory(textureImageMemory);
     }
