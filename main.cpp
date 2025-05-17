@@ -30,6 +30,7 @@ struct UniformBufferObject {
 struct Vertex {
     glm::vec2 pos;
     glm::vec3 color;
+    glm::vec2 texCoord;
 
     constexpr static vk::VertexInputBindingDescription getBindingDescription() {
         constexpr vk::VertexInputBindingDescription bindingDescription{
@@ -38,10 +39,11 @@ struct Vertex {
         return bindingDescription;
     }
 
-    constexpr static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions() {
-        constexpr std::array<vk::VertexInputAttributeDescription, 2> attributeDescriptions{{
+    constexpr static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions() {
+        constexpr std::array<vk::VertexInputAttributeDescription, 3> attributeDescriptions{{
             {.binding = 0, .location = 0, .format = vk::Format::eR32G32Sfloat, .offset = offsetof(Vertex, pos)},
             {.binding = 0, .location = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, color)},
+            {.binding = 0, .location = 2, .format = vk::Format::eR32G32Sfloat, .offset = offsetof(Vertex, texCoord)},
         }};
 
         return attributeDescriptions;
@@ -150,10 +152,10 @@ class HelloTriangle {
     uint32_t currentFrame{};
 
     static constexpr std::array<Vertex, 4> vertices = {{
-        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
     }};
 
     static constexpr std::array<uint32_t, 6> indices = {0, 1, 2, 2, 3, 0};
@@ -387,27 +389,46 @@ class HelloTriangle {
             vk::DescriptorBufferInfo bufferInfo{
                 .buffer = uniformBufers[i], .offset = 0, .range = sizeof(UniformBufferObject)};
 
-            vk::WriteDescriptorSet descriptorWrite{.sType = vk::StructureType::eWriteDescriptorSet,
-                                                   .dstSet = descriptorSets[i],
-                                                   .dstBinding = 0,
-                                                   .dstArrayElement = 0,
-                                                   .descriptorType = vk::DescriptorType::eUniformBuffer,
-                                                   .descriptorCount = 1,
-                                                   .pBufferInfo = &bufferInfo,
-                                                   .pImageInfo = nullptr,
-                                                   .pTexelBufferView = nullptr};
+            vk::DescriptorImageInfo imageInfo{.sampler = textureSampler,
+                                              .imageView = textureImageView,
+                                              .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
 
-            device.updateDescriptorSets(1, &descriptorWrite, 0, nullptr);
+            const vk::WriteDescriptorSet bufferDescriptorWrite{.sType = vk::StructureType::eWriteDescriptorSet,
+                                                               .dstSet = descriptorSets[i],
+                                                               .dstBinding = 0,
+                                                               .dstArrayElement = 0,
+                                                               .descriptorType = vk::DescriptorType::eUniformBuffer,
+                                                               .descriptorCount = 1,
+                                                               .pBufferInfo = &bufferInfo,
+                                                               .pImageInfo = nullptr,
+                                                               .pTexelBufferView = nullptr};
+
+            const vk::WriteDescriptorSet samplerDescriptorWrite{.sType = vk::StructureType::eWriteDescriptorSet,
+                                       .dstSet = descriptorSets[i],
+                                       .dstBinding = 1,
+                                       .dstArrayElement = 0,
+                                       .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                                       .descriptorCount = 1,
+                                       .pImageInfo = &imageInfo};
+
+            std::array descriptorWrites = {bufferDescriptorWrite, samplerDescriptorWrite};
+
+            device.updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
         }
     }
 
     void createDescriptorPool() {
-        static constexpr vk::DescriptorPoolSize poolSize{.type = vk::DescriptorType::eUniformBuffer,
+        static constexpr vk::DescriptorPoolSize uboPoolSize{.type = vk::DescriptorType::eUniformBuffer,
                                                          .descriptorCount = maxFramesInFlight};
 
-        constexpr vk::DescriptorPoolCreateInfo poolInfo{.sType = vk::StructureType::eDescriptorPoolCreateInfo,
-                                                        .poolSizeCount = 1,
-                                                        .pPoolSizes = &poolSize,
+        static constexpr vk::DescriptorPoolSize samplerPoolSize{.type = vk::DescriptorType::eCombinedImageSampler,
+                                                 .descriptorCount = maxFramesInFlight};
+
+        static constexpr std::array<vk::DescriptorPoolSize, 2> poolSizes = {uboPoolSize, samplerPoolSize};
+
+        static constexpr vk::DescriptorPoolCreateInfo poolInfo{.sType = vk::StructureType::eDescriptorPoolCreateInfo,
+                                                        .poolSizeCount = poolSizes.size(),
+                                                        .pPoolSizes = poolSizes.data(),
                                                         .maxSets = maxFramesInFlight};
 
         descriptorPool = device.createDescriptorPool(poolInfo);
@@ -436,10 +457,20 @@ class HelloTriangle {
             .stageFlags = vk::ShaderStageFlagBits::eVertex,
             .pImmutableSamplers = nullptr};
 
-        constexpr vk::DescriptorSetLayoutCreateInfo layoutInfo{
+        static constexpr vk::DescriptorSetLayoutBinding samplerLayoutBinding {
+            .binding = 1,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+            .pImmutableSamplers = nullptr,
+            .stageFlags = vk::ShaderStageFlagBits::eFragment
+        };
+
+        static constexpr std::array<vk::DescriptorSetLayoutBinding, 2> bindings = {uboLayoutBinding, samplerLayoutBinding};
+
+        static constexpr vk::DescriptorSetLayoutCreateInfo layoutInfo{
             .sType = vk::StructureType::eDescriptorSetLayoutCreateInfo,
-            .bindingCount = 1,
-            .pBindings = &uboLayoutBinding};
+            .bindingCount = bindings.size(),
+            .pBindings = bindings.data()};
 
         descriptorSetLayout = device.createDescriptorSetLayout(layoutInfo);
     }
