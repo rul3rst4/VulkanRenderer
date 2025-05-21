@@ -171,6 +171,10 @@ class HelloTriangle {
     vk::ImageView textureImageView;
     vk::Sampler textureSampler;
 
+    vk::Image depthImage;
+    vk::DeviceMemory depthImageMemory;
+    vk::ImageView depthImageView;
+
     vk::DescriptorPool descriptorPool;
     std::vector<vk::DescriptorSet> descriptorSets;
 
@@ -212,6 +216,7 @@ class HelloTriangle {
         createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
+        createDepthResources();
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
@@ -222,6 +227,40 @@ class HelloTriangle {
         createDescriptorSets();
         createCommandBuffers();
         createSyncObjects();
+    }
+
+    void createDepthResources() {
+        auto depthFormat = findDepthFormat();
+
+        createImage(swapChainExtent.width, swapChainExtent.height, depthFormat, vk::ImageTiling::eOptimal,
+                    vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal,
+                    depthImage, depthImageMemory);
+        depthImageView = createImageView(depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth);
+    }
+
+    vk::Format findDepthFormat() const {
+        return findSupportedFormat({vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint, vk::Format::eD24UnormS8Uint},
+                                   vk::ImageTiling::eOptimal, vk::FormatFeatureFlagBits::eDepthStencilAttachment);
+    }
+
+    bool hasStencilComponent(vk::Format format) const {
+        return format == vk::Format::eD32SfloatS8Uint || format == vk::Format::eD24UnormS8Uint;
+    }
+
+    vk::Format findSupportedFormat(const std::vector<vk::Format>& candidates,
+                                   vk::ImageTiling tiling,
+                                   vk::FormatFeatureFlags features) const {
+        for (const auto& format : candidates) {
+            const auto props = physicalDevice.getFormatProperties(format);
+
+            if (tiling == vk::ImageTiling::eLinear && (props.linearTilingFeatures & features) == features) {
+                return format;
+            } else if (tiling == vk::ImageTiling::eOptimal && (props.optimalTilingFeatures & features) == features) {
+                return format;
+            }
+        }
+
+        throw std::runtime_error("failed to find supported format!");
     }
 
     void createTextureSampler() {
@@ -247,7 +286,9 @@ class HelloTriangle {
         textureSampler = device.createSampler(samplerInfo);
     }
 
-    void createTextureImageView() { textureImageView = createImageView(textureImage, vk::Format::eR8G8B8A8Srgb); }
+    void createTextureImageView() {
+        textureImageView = createImageView(textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageAspectFlagBits::eColor);
+    }
 
     void copyBufferToImage(const vk::Buffer buffer,
                            const vk::Image image,
@@ -717,22 +758,37 @@ class HelloTriangle {
 
         vk::AttachmentReference colorAttachmentRef{.attachment = 0, .layout = vk::ImageLayout::eColorAttachmentOptimal};
 
+        vk::AttachmentDescription depthAttachment{.format = findDepthFormat(),
+                                                  .samples = vk::SampleCountFlagBits::e1,
+                                                  .loadOp = vk::AttachmentLoadOp::eClear,
+                                                  .storeOp = vk::AttachmentStoreOp::eDontCare,
+                                                  .stencilLoadOp = vk::AttachmentLoadOp::eDontCare,
+                                                  .stencilStoreOp = vk::AttachmentStoreOp::eDontCare,
+                                                  .initialLayout = vk::ImageLayout::eUndefined,
+                                                  .finalLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal};
+
+        vk::AttachmentReference depthAttachmentRef{.attachment = 1,
+                                                   .layout = vk::ImageLayout::eDepthStencilAttachmentOptimal};
+
         vk::SubpassDescription subpass{.pipelineBindPoint = vk::PipelineBindPoint::eGraphics,
                                        .colorAttachmentCount = 1,
-                                       .pColorAttachments = &colorAttachmentRef};
+                                       .pColorAttachments = &colorAttachmentRef,
+                                       .depthStencilAttachment = &depthAttachmentRef};
 
         vk::SubpassDependency dependency{
             .srcSubpass = vk::SubpassExternal,
             .dstSubpass = 0,
-            .srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput,
+            .srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput | vk::PipelineStageFlags::eLateFragmentTests,
             .srcAccessMask = vk::AccessFlagBits::eNone,
             .dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput,
             .dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
         };
 
+        std::array<vk::AttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
+
         const vk::RenderPassCreateInfo renderPassInfo{.sType = vk::StructureType::eRenderPassCreateInfo,
-                                                      .attachmentCount = 1,
-                                                      .pAttachments = &colorAttachment,
+                                                      .attachmentCount = attachments.size(),
+                                                      .pAttachments = &attachments.data(),
                                                       .subpassCount = 1,
                                                       .pSubpasses = &subpass,
                                                       .dependencyCount = 1,
@@ -899,7 +955,9 @@ class HelloTriangle {
         return device.createShaderModule(createInfo);
     }
 
-    [[nodiscard]] vk::ImageView createImageView(const vk::Image& image, const vk::Format format) const {
+    [[nodiscard]] vk::ImageView createImageView(const vk::Image& image,
+                                                const vk::Format format,
+                                                vk::ImageAspectFlagBits aspectFlags) const {
         const vk::ImageViewCreateInfo createInfo{
             .sType = vk::StructureType::eImageViewCreateInfo,
             .image = image,
@@ -909,7 +967,7 @@ class HelloTriangle {
             .components.g = vk::ComponentSwizzle::eIdentity,
             .components.b = vk::ComponentSwizzle::eIdentity,
             .components.a = vk::ComponentSwizzle::eIdentity,
-            .subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor,
+            .subresourceRange.aspectMask = aspectFlags,
             .subresourceRange.baseMipLevel = 0,
             .subresourceRange.levelCount = 1,
             .subresourceRange.baseArrayLayer = 0,
@@ -923,7 +981,8 @@ class HelloTriangle {
         swapChainImageViews.resize(swapChainImages.size());
 
         for (size_t i = 0; i < swapChainImages.size(); i++) {
-            swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
+            swapChainImageViews[i] =
+                createImageView(swapChainImages[i], swapChainImageFormat, vk::ImageAspectFlagBits::eColor);
         }
     }
 
