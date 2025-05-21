@@ -83,6 +83,46 @@ static std::vector<char> readFile(const std::string& fileName) {
     return buffer;
 }
 
+class ScopedOneTimeCommandBuffer {
+   public:
+    explicit ScopedOneTimeCommandBuffer(const vk::Device& device,
+                                        const vk::CommandPool& commandPool,
+                                        const vk::Queue& graphicsQueue)
+        : device(device), commandPool(commandPool), graphicsQueue(graphicsQueue) {
+        const vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
+                                                      .commandPool = commandPool,
+                                                      .level = vk::CommandBufferLevel::ePrimary,
+                                                      .commandBufferCount = 1};
+
+        commandBuffer = device.allocateCommandBuffers(allocInfo)[0];
+
+        constexpr vk::CommandBufferBeginInfo beginInfo{.sType = vk::StructureType::eCommandBufferBeginInfo,
+                                                       .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
+
+        commandBuffer.begin(beginInfo);
+    }
+
+    ~ScopedOneTimeCommandBuffer() {
+        commandBuffer.end();
+
+        const vk::SubmitInfo submitInfo{
+            .sType = vk::StructureType::eSubmitInfo, .commandBufferCount = 1, .pCommandBuffers = &commandBuffer};
+
+        vk::detail::resultCheck(graphicsQueue.submit(1, &submitInfo, nullptr),
+                                "Error submiting CopyBuffer commandBuffer");
+        graphicsQueue.waitIdle();
+        device.freeCommandBuffers(commandPool, 1, &commandBuffer);
+    }
+
+   public:
+    vk::CommandBuffer commandBuffer;
+
+   private:
+    const vk::Device& device;
+    const vk::CommandPool& commandPool;
+    const vk::Queue& graphicsQueue;
+};
+
 class HelloTriangle {
    private:
     std::unique_ptr<GLFWwindow, decltype(&::glfwDestroyWindow)> window;
@@ -213,7 +253,7 @@ class HelloTriangle {
                            const vk::Image image,
                            const uint32_t width,
                            const uint32_t height) const {
-        auto commandBuffer = beginSingleTimeCommands();
+        auto scopedCommandBuffer = ScopedOneTimeCommandBuffer(device, commandPool, graphicsQueue);
 
         const vk::BufferImageCopy region{
             .bufferOffset = 0,
@@ -226,16 +266,15 @@ class HelloTriangle {
             .imageExtent = {width, height, 1},
         };
 
-        commandBuffer.copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal, 1, &region);
-
-        endSingleTimeCommands(commandBuffer);
+        scopedCommandBuffer.commandBuffer.copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal, 1,
+                                                            &region);
     }
 
     void transitionImageLayout(const vk::Image image,
                                vk::Format /* format */,
                                const vk::ImageLayout oldLayout,
                                const vk::ImageLayout newLayout) const {
-        auto commandBuffer = beginSingleTimeCommands();
+        auto scopedCommandBuffer = ScopedOneTimeCommandBuffer(device, commandPool, graphicsQueue);
 
         vk::PipelineStageFlagBits srcStage;
         vk::PipelineStageFlagBits dstStage;
@@ -271,36 +310,8 @@ class HelloTriangle {
             throw std::invalid_argument("unsupported layout transition!");
         }
 
-        commandBuffer.pipelineBarrier(srcStage, dstStage, vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 1, &barrier);
-
-        endSingleTimeCommands(commandBuffer);
-    }
-
-    [[nodiscard]] vk::CommandBuffer beginSingleTimeCommands() const {
-        const vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
-                                                      .level = vk::CommandBufferLevel::ePrimary,
-                                                      .commandPool = commandPool,
-                                                      .commandBufferCount = 1};
-
-        const auto commandBuffer = device.allocateCommandBuffers(allocInfo)[0];
-
-        constexpr vk::CommandBufferBeginInfo beginInfo{.sType = vk::StructureType::eCommandBufferBeginInfo,
-                                                       .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
-
-        commandBuffer.begin(beginInfo);
-        return commandBuffer;
-    }
-
-    void endSingleTimeCommands(vk::CommandBuffer& commandBuffer) const {
-        commandBuffer.end();
-
-        const vk::SubmitInfo submitInfo{
-            .sType = vk::StructureType::eSubmitInfo, .commandBufferCount = 1, .pCommandBuffers = &commandBuffer};
-
-        vk::detail::resultCheck(graphicsQueue.submit(1, &submitInfo, nullptr),
-                                "Error submiting CopyBuffer commandBuffer");
-        graphicsQueue.waitIdle();
-        device.freeCommandBuffers(commandPool, 1, &commandBuffer);
+        scopedCommandBuffer.commandBuffer.pipelineBarrier(srcStage, dstStage, vk::DependencyFlags{}, 0, nullptr, 0,
+                                                          nullptr, 1, &barrier);
     }
 
     void createImage(const uint32_t width,
@@ -403,13 +414,14 @@ class HelloTriangle {
                                                                .pImageInfo = nullptr,
                                                                .pTexelBufferView = nullptr};
 
-            const vk::WriteDescriptorSet samplerDescriptorWrite{.sType = vk::StructureType::eWriteDescriptorSet,
-                                       .dstSet = descriptorSets[i],
-                                       .dstBinding = 1,
-                                       .dstArrayElement = 0,
-                                       .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                                       .descriptorCount = 1,
-                                       .pImageInfo = &imageInfo};
+            const vk::WriteDescriptorSet samplerDescriptorWrite{
+                .sType = vk::StructureType::eWriteDescriptorSet,
+                .dstSet = descriptorSets[i],
+                .dstBinding = 1,
+                .dstArrayElement = 0,
+                .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                .descriptorCount = 1,
+                .pImageInfo = &imageInfo};
 
             std::array descriptorWrites = {bufferDescriptorWrite, samplerDescriptorWrite};
 
@@ -419,17 +431,17 @@ class HelloTriangle {
 
     void createDescriptorPool() {
         static constexpr vk::DescriptorPoolSize uboPoolSize{.type = vk::DescriptorType::eUniformBuffer,
-                                                         .descriptorCount = maxFramesInFlight};
+                                                            .descriptorCount = maxFramesInFlight};
 
         static constexpr vk::DescriptorPoolSize samplerPoolSize{.type = vk::DescriptorType::eCombinedImageSampler,
-                                                 .descriptorCount = maxFramesInFlight};
+                                                                .descriptorCount = maxFramesInFlight};
 
         static constexpr std::array<vk::DescriptorPoolSize, 2> poolSizes = {uboPoolSize, samplerPoolSize};
 
         static constexpr vk::DescriptorPoolCreateInfo poolInfo{.sType = vk::StructureType::eDescriptorPoolCreateInfo,
-                                                        .poolSizeCount = poolSizes.size(),
-                                                        .pPoolSizes = poolSizes.data(),
-                                                        .maxSets = maxFramesInFlight};
+                                                               .poolSizeCount = poolSizes.size(),
+                                                               .pPoolSizes = poolSizes.data(),
+                                                               .maxSets = maxFramesInFlight};
 
         descriptorPool = device.createDescriptorPool(poolInfo);
     }
@@ -457,15 +469,15 @@ class HelloTriangle {
             .stageFlags = vk::ShaderStageFlagBits::eVertex,
             .pImmutableSamplers = nullptr};
 
-        static constexpr vk::DescriptorSetLayoutBinding samplerLayoutBinding {
+        static constexpr vk::DescriptorSetLayoutBinding samplerLayoutBinding{
             .binding = 1,
             .descriptorCount = 1,
             .descriptorType = vk::DescriptorType::eCombinedImageSampler,
             .pImmutableSamplers = nullptr,
-            .stageFlags = vk::ShaderStageFlagBits::eFragment
-        };
+            .stageFlags = vk::ShaderStageFlagBits::eFragment};
 
-        static constexpr std::array<vk::DescriptorSetLayoutBinding, 2> bindings = {uboLayoutBinding, samplerLayoutBinding};
+        static constexpr std::array<vk::DescriptorSetLayoutBinding, 2> bindings = {uboLayoutBinding,
+                                                                                   samplerLayoutBinding};
 
         static constexpr vk::DescriptorSetLayoutCreateInfo layoutInfo{
             .sType = vk::StructureType::eDescriptorSetLayoutCreateInfo,
@@ -543,13 +555,11 @@ class HelloTriangle {
     }
 
     void copyBuffer(const vk::Buffer srcBuffer, const vk::Buffer dstBuffer, const vk::DeviceSize size) const {
-        auto commandBuffer = beginSingleTimeCommands();
+        auto scopedCommandBuffer = ScopedOneTimeCommandBuffer(device, commandPool, graphicsQueue);
 
         const vk::BufferCopy copyRegion{.srcOffset = 0, .dstOffset = 0, .size = size};
 
-        commandBuffer.copyBuffer(srcBuffer, dstBuffer, 1, &copyRegion);
-
-        endSingleTimeCommands(commandBuffer);
+        scopedCommandBuffer.commandBuffer.copyBuffer(srcBuffer, dstBuffer, 1, &copyRegion);
     }
 
     [[nodiscard]] uint32_t findMemoryType(const uint32_t typeFilter,
