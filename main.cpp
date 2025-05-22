@@ -214,9 +214,9 @@ class HelloTriangle {
         createRenderPass();
         createDescriptorSetLayout();
         createGraphicsPipeline();
-        createFramebuffers();
         createCommandPool();
         createDepthResources();
+        createFramebuffers();
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
@@ -643,6 +643,7 @@ class HelloTriangle {
 
         createSwapChain();
         createImageViews();
+        createDepthResources();
         createFramebuffers();
     }
 
@@ -671,14 +672,16 @@ class HelloTriangle {
         commandBuffer.begin(beginInfo);
 
         vk::ClearValue clearColor = {.color.float32 = std::array<float, 4>{1.0f, 1.0f, 1.0f, 1.0f}};
+        vk::ClearValue clearDepth = {.depthStencil = {.depth = 1.0f, .stencil = 0}};
+        std::array clearValues = {clearColor, clearDepth};
 
         const vk::RenderPassBeginInfo renderPassInfo{.sType = vk::StructureType::eRenderPassBeginInfo,
                                                      .renderPass = renderPass,
                                                      .framebuffer = swapChainFramebuffers[imageIndex],
                                                      .renderArea.offset = {0, 0},
                                                      .renderArea.extent = swapChainExtent,
-                                                     .clearValueCount = 1,
-                                                     .pClearValues = &clearColor};
+                                                     .clearValueCount = clearValues.size(),
+                                                     .pClearValues = clearValues.data()};
 
         commandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
@@ -732,12 +735,12 @@ class HelloTriangle {
         swapChainFramebuffers.resize(swapChainImageViews.size());
 
         for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-            vk::ImageView attachments[] = {swapChainImageViews[i]};
+            std::array attachments = {swapChainImageViews[i], depthImageView};
 
             vk::FramebufferCreateInfo framebufferInfo{.sType = vk::StructureType::eFramebufferCreateInfo,
                                                       .renderPass = renderPass,
-                                                      .attachmentCount = 1,
-                                                      .pAttachments = attachments,
+                                                      .attachmentCount = attachments.size(),
+                                                      .pAttachments = attachments.data(),
                                                       .width = swapChainExtent.width,
                                                       .height = swapChainExtent.height,
                                                       .layers = 1};
@@ -773,22 +776,25 @@ class HelloTriangle {
         vk::SubpassDescription subpass{.pipelineBindPoint = vk::PipelineBindPoint::eGraphics,
                                        .colorAttachmentCount = 1,
                                        .pColorAttachments = &colorAttachmentRef,
-                                       .depthStencilAttachment = &depthAttachmentRef};
+                                       .pDepthStencilAttachment = &depthAttachmentRef};
 
         vk::SubpassDependency dependency{
             .srcSubpass = vk::SubpassExternal,
             .dstSubpass = 0,
-            .srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput | vk::PipelineStageFlags::eLateFragmentTests,
-            .srcAccessMask = vk::AccessFlagBits::eNone,
-            .dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput,
-            .dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
+            .srcStageMask =
+                vk::PipelineStageFlagBits::eColorAttachmentOutput | vk::PipelineStageFlagBits::eLateFragmentTests,
+            .dstStageMask =
+                vk::PipelineStageFlagBits::eColorAttachmentOutput | vk::PipelineStageFlagBits::eEarlyFragmentTests,
+            .srcAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentWrite,
+            .dstAccessMask =
+                vk::AccessFlagBits::eColorAttachmentWrite | vk::AccessFlagBits::eDepthStencilAttachmentWrite,
         };
 
         std::array<vk::AttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
 
         const vk::RenderPassCreateInfo renderPassInfo{.sType = vk::StructureType::eRenderPassCreateInfo,
                                                       .attachmentCount = attachments.size(),
-                                                      .pAttachments = &attachments.data(),
+                                                      .pAttachments = attachments.data(),
                                                       .subpassCount = 1,
                                                       .pSubpasses = &subpass,
                                                       .dependencyCount = 1,
@@ -912,6 +918,18 @@ class HelloTriangle {
 
         pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
 
+        vk::PipelineDepthStencilStateCreateInfo depthStencil{
+            .sType = vk::StructureType::ePipelineDepthStencilStateCreateInfo,
+            .depthTestEnable = VK_TRUE,
+            .depthWriteEnable = VK_TRUE,
+            .depthCompareOp = vk::CompareOp::eLess,
+            .depthBoundsTestEnable = VK_FALSE,
+            .stencilTestEnable = VK_FALSE,
+            .front = {},
+            .back = {},
+            .minDepthBounds = 0.0f,
+            .maxDepthBounds = 1.0f};
+
         std::vector<vk::DynamicState> dynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
 
         vk::PipelineDynamicStateCreateInfo dynamicState{
@@ -919,22 +937,24 @@ class HelloTriangle {
             .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
             .pDynamicStates = dynamicStates.data()};
 
-        vk::GraphicsPipelineCreateInfo pipelineInfo{.sType = vk::StructureType::eGraphicsPipelineCreateInfo,
-                                                    .stageCount = 2,
-                                                    .pStages = shaderStages,
-                                                    .pVertexInputState = &vertexInputCreateInfo,
-                                                    .pInputAssemblyState = &inputAssembly,
-                                                    .pViewportState = &viewportState,
-                                                    .pRasterizationState = &rasterizer,
-                                                    .pMultisampleState = &multisampling,
-                                                    .pDepthStencilState = nullptr,
-                                                    .pColorBlendState = &colorBlending,
-                                                    .pDynamicState = &dynamicState,
-                                                    .layout = pipelineLayout,
-                                                    .renderPass = renderPass,
-                                                    .subpass = 0,
-                                                    .basePipelineHandle = nullptr,
-                                                    .basePipelineIndex = -1};
+        vk::GraphicsPipelineCreateInfo pipelineInfo{
+            .sType = vk::StructureType::eGraphicsPipelineCreateInfo,
+            .stageCount = 2,
+            .pStages = shaderStages,
+            .pVertexInputState = &vertexInputCreateInfo,
+            .pInputAssemblyState = &inputAssembly,
+            .pViewportState = &viewportState,
+            .pRasterizationState = &rasterizer,
+            .pMultisampleState = &multisampling,
+            .pDepthStencilState = &depthStencil,
+            .pColorBlendState = &colorBlending,
+            .pDynamicState = &dynamicState,
+            .layout = pipelineLayout,
+            .renderPass = renderPass,
+            .subpass = 0,
+            .basePipelineHandle = nullptr,
+            .basePipelineIndex = -1,
+        };
 
         auto pipelineCreationResult = device.createGraphicsPipeline(nullptr, pipelineInfo);
         if (pipelineCreationResult.result != vk::Result::eSuccess) {
@@ -1395,6 +1415,10 @@ class HelloTriangle {
         device.destroyImageView(textureImageView);
         device.destroyImage(textureImage);
         device.freeMemory(textureImageMemory);
+
+        device.destroyImageView(depthImageView);
+        device.destroyImage(depthImage);
+        device.freeMemory(depthImageMemory);
     }
 
     void initWindow() {
