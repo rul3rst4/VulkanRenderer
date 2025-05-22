@@ -8,7 +8,7 @@ InlayHints:
 Hover:
   ShowAKA: Yes
 CompileFlags:
-  Remove: [-Wc++98-compat, -Wc++98-compat-pedantic]
+  Remove: [-Wc++98-compat, -Wc++98-compat-pedantic, -Wreorder-init-list, -Wsign-conversion]
   Add: [
     -I/Users/andersonkulitch/VulkanSDK/1.4.309.0/macOS/include,
     -Wunused-const-variable,
@@ -25,5 +25,6 @@ CompileFlags:
     -Woverloaded-virtual,
     -Wnull-dereference,
     -Wdouble-promotion,
-    -Wformat=2
+    -Wformat=2,
+    -ferror-limit=1000
     ]

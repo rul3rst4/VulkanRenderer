@@ -1,5 +1,14 @@
 {
     "sonarlint.pathToCompileCommands": "${workspaceFolder}/compile_commands.json",
+    "clangd.path": "/Users/andersonkulitch/Documents/toolchains/LLVM-20.1.0-macOS-ARM64/bin/clangd",
+    "C_Cpp.codeAnalysis.clangTidy.path": "/Users/andersonkulitch/Documents/toolchains/LLVM-20.1.0-macOS-ARM64/bin/clang-tidy",
+    "C_Cpp.codeAnalysis.clangTidy.enabled": true,
+    "C_Cpp.clang_format_path": "/Users/andersonkulitch/Documents/toolchains/LLVM-20.1.0-macOS-ARM64/bin/clang-format",
+    "C_Cpp.commentContinuationPatterns": [
+        "/**"
+    ],
+    "C_Cpp.formatting": "clangFormat",
+    "editor.autoIndent": "advanced",
     "files.associations": {
         "__bit_reference": "cpp",
         "__hash_table": "cpp",
@@ -57,6 +66,6 @@
         "__config": "cpp",
         "set": "cpp",
         "__tree": "cpp",
-        "fstream": "cpp"
+        "fstream": "cpp",
     }
 }

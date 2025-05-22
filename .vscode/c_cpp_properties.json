@@ -2,11 +2,21 @@
     "configurations": [
         {
             "name": "Mac",
-            "includePath": ["${workspaceFolder}/**", "/opt/homebrew/include/**"],
+            "includePath": [
+                "/Users/andersonkulitch/VulkanSDK/1.4.309.0/macOS/include/",
+                "${workspaceFolder}/**",
+                "/opt/homebrew/include/**"
+            ],
             "defines": [],
-            "compilerPath": "/usr/bin/clang",
+            "compilerPath": "/Users/andersonkulitch/Documents/toolchains/LLVM-20.1.0-macOS-ARM64/bin/clang",
             "intelliSenseMode": "macos-clang-arm64",
-            "compileCommands": "${workspaceFolder}/compile_commands.json"
+            "cStandard": "c17",
+            "cppStandard": "c++20",
+            "compileCommands": "${workspaceFolder}/compile_commands.json",
+            "forcedInclude": [
+                "/Users/andersonkulitch/VulkanSDK/1.4.309.0/macOS/include/vulkan/vulkan.hpp"
+            ],
+            "mergeConfigurations": true
         }
     ],
     "version": 4
