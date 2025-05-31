@@ -1,4 +1,7 @@
 #include <exception>
+#include <initializer_list>
+#include <iterator>
+#include <ranges>
 #define VULKAN_HPP_NO_CONSTRUCTORS  // Permite usar Designated Initializers pra construir os objetos.
 // #define VULKAN_HPP_NO_EXCEPTIONS // Retorna um result type pra ser tratado.
 // #define GLFW_INCLUDE_VULKAN
@@ -28,9 +31,9 @@ struct UniformBufferObject {
 };
 
 struct Vertex {
-    glm::vec2 pos;
+    glm::vec3 pos;
     glm::vec3 color;
-    glm::vec2 texCoord;
+    glm::vec3 texCoord;
 
     constexpr static vk::VertexInputBindingDescription getBindingDescription() {
         constexpr vk::VertexInputBindingDescription bindingDescription{
@@ -41,9 +44,9 @@ struct Vertex {
 
     constexpr static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions() {
         constexpr std::array<vk::VertexInputAttributeDescription, 3> attributeDescriptions{{
-            {.binding = 0, .location = 0, .format = vk::Format::eR32G32Sfloat, .offset = offsetof(Vertex, pos)},
+            {.binding = 0, .location = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, pos)},
             {.binding = 0, .location = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, color)},
-            {.binding = 0, .location = 2, .format = vk::Format::eR32G32Sfloat, .offset = offsetof(Vertex, texCoord)},
+            {.binding = 0, .location = 2, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, texCoord)},
         }};
 
         return attributeDescriptions;
@@ -195,14 +198,30 @@ class HelloTriangle {
 
     uint32_t currentFrame{};
 
-    static constexpr std::array<Vertex, 4> vertices = {{
-        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+    static constexpr std::array<Vertex, 8> vertices = {{
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {-0.5f, -0.5f, -0.5f}},  // 0
+        {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.5f, -0.5f, -0.5f}},    // 1
+        {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.5f, 0.5f, -0.5f}},      // 2
+        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {-0.5f, 0.5f, -0.5f}},    // 3
+        {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 1.0f}, {-0.5f, -0.5f, 0.5f}},    // 4
+        {{0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}, {0.5f, -0.5f, 0.5f}},      // 5
+        {{0.5f, 0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {0.5f, 0.5f, 0.5f}},        // 6
+        {{-0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}},      // 7
     }};
 
-    static constexpr std::array<uint32_t, 6> indices = {0, 1, 2, 2, 3, 0};
+    static constexpr std::array<uint32_t, 36> indices = {
+        // Front face (+Z)
+        4, 5, 6, 4, 6, 7,
+        // Back face (-Z)
+        0, 1, 2, 0, 2, 3,
+        // Right face (+X)
+        1, 5, 6, 1, 6, 2,
+        // Left face (-X)
+        4, 0, 3, 4, 3, 7,
+        // Top face (+Y)
+        3, 2, 6, 3, 6, 7,
+        // Bottom face (-Y)
+        4, 5, 1, 4, 1, 0};
 
     void initVulkan() {
         createVkInstance();
@@ -234,8 +253,9 @@ class HelloTriangle {
 
         createImage(swapChainExtent.width, swapChainExtent.height, depthFormat, vk::ImageTiling::eOptimal,
                     vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal,
-                    depthImage, depthImageMemory);
-        depthImageView = createImageView(depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth);
+                    depthImage, depthImageMemory, 1);
+        depthImageView =
+            createImageView(depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth, vk::ImageViewType::e2D, 1);
     }
 
     vk::Format findDepthFormat() const {
@@ -269,16 +289,16 @@ class HelloTriangle {
         const vk::SamplerCreateInfo samplerInfo{.sType = vk::StructureType::eSamplerCreateInfo,
                                                 .magFilter = vk::Filter::eLinear,
                                                 .minFilter = vk::Filter::eLinear,
-                                                .addressModeU = vk::SamplerAddressMode::eRepeat,
-                                                .addressModeV = vk::SamplerAddressMode::eRepeat,
-                                                .addressModeW = vk::SamplerAddressMode::eRepeat,
+                                                .mipmapMode = vk::SamplerMipmapMode::eLinear,
+                                                .addressModeU = vk::SamplerAddressMode::eClampToEdge,
+                                                .addressModeV = vk::SamplerAddressMode::eClampToEdge,
+                                                .addressModeW = vk::SamplerAddressMode::eClampToEdge,
                                                 .anisotropyEnable = vk::True,
                                                 .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
                                                 .borderColor = vk::BorderColor::eIntOpaqueBlack,
                                                 .unnormalizedCoordinates = vk::False,
                                                 .compareEnable = vk::False,
                                                 .compareOp = vk::CompareOp::eAlways,
-                                                .mipmapMode = vk::SamplerMipmapMode::eLinear,
                                                 .mipLodBias = 0.0f,
                                                 .minLod = 0.0f,
                                                 .maxLod = 0.0f};
@@ -287,22 +307,25 @@ class HelloTriangle {
     }
 
     void createTextureImageView() {
-        textureImageView = createImageView(textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageAspectFlagBits::eColor);
+        textureImageView = createImageView(textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageAspectFlagBits::eColor,
+                                           vk::ImageViewType::eCube, 6);
     }
 
     void copyBufferToImage(const vk::Buffer buffer,
                            const vk::Image image,
                            const uint32_t width,
-                           const uint32_t height) const {
+                           const uint32_t height,
+                           const uint32_t layerCount) const {
         auto scopedCommandBuffer = ScopedOneTimeCommandBuffer(device, commandPool, graphicsQueue);
 
         const vk::BufferImageCopy region{
             .bufferOffset = 0,
             .bufferRowLength = 0,
             .bufferImageHeight = 0,
-            .imageSubresource =
-                vk::ImageSubresourceLayers{
-                    .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1, .aspectMask = vk::ImageAspectFlagBits::eColor},
+            .imageSubresource = vk::ImageSubresourceLayers{.mipLevel = 0,
+                                                           .baseArrayLayer = 0,
+                                                           .layerCount = layerCount,
+                                                           .aspectMask = vk::ImageAspectFlagBits::eColor},
             .imageOffset = {0, 0, 0},
             .imageExtent = {width, height, 1},
         };
@@ -314,7 +337,8 @@ class HelloTriangle {
     void transitionImageLayout(const vk::Image image,
                                vk::Format /* format */,
                                const vk::ImageLayout oldLayout,
-                               const vk::ImageLayout newLayout) const {
+                               const vk::ImageLayout newLayout,
+                               const uint32_t layerCount) const {
         auto scopedCommandBuffer = ScopedOneTimeCommandBuffer(device, commandPool, graphicsQueue);
 
         vk::PipelineStageFlagBits srcStage;
@@ -331,7 +355,7 @@ class HelloTriangle {
                                                           .baseMipLevel = 0,
                                                           .levelCount = 1,
                                                           .baseArrayLayer = 0,
-                                                          .layerCount = 1},
+                                                          .layerCount = layerCount},
         };
 
         if (oldLayout == vk::ImageLayout::eUndefined && newLayout == vk::ImageLayout::eTransferDstOptimal) {
@@ -362,21 +386,24 @@ class HelloTriangle {
                      const vk::Flags<vk::ImageUsageFlagBits> usage,
                      const vk::Flags<vk::MemoryPropertyFlagBits> properties,
                      vk::Image& image,
-                     vk::DeviceMemory& imageMemory) const {
+                     vk::DeviceMemory& imageMemory,
+                     const uint32_t arrayLayers,
+                     const vk::ImageCreateFlags flags = {}) const {
         const vk::ImageCreateInfo imageInfo{
             .sType = vk::StructureType::eImageCreateInfo,
+            .flags = flags,
             .imageType = vk::ImageType::e2D,
+            .format = format,
             .extent =
                 vk::Extent3D{
                     .width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height), .depth = 1},
             .mipLevels = 1,
-            .arrayLayers = 1,
-            .format = format,
+            .arrayLayers = arrayLayers,
+            .samples = vk::SampleCountFlagBits::e1,
             .tiling = tiling,
-            .initialLayout = vk::ImageLayout::eUndefined,
             .usage = usage,
             .sharingMode = vk::SharingMode::eExclusive,
-            .samples = vk::SampleCountFlagBits::e1,
+            .initialLayout = vk::ImageLayout::eUndefined,
         };
 
         image = device.createImage(imageInfo);
@@ -393,13 +420,19 @@ class HelloTriangle {
 
     void createTextureImage() {
         int texWidth, texHeight, texChannels;
-        stbi_uc* pixels = stbi_load("/Users/andersonkulitch/Documents/dev/vulkan/texture/texture.jpg", &texWidth,
-                                    &texHeight, &texChannels, STBI_rgb_alpha);
-        const vk::DeviceSize imageSize = texWidth * texHeight * 4;
 
-        if (!pixels) {
-            throw std::runtime_error("Failed to load texture image.");
+        std::vector<stbi_uc*> pixels;
+
+        for (const auto& face : std::array{"right", "left", "top", "bottom", "front", "back"}) {
+            pixels.push_back(
+                stbi_load(fmt::format("/Users/andersonkulitch/Documents/dev/vulkan/texture/{}.jpg", face).c_str(),
+                          &texWidth, &texHeight, &texChannels, STBI_rgb_alpha));
+            if (!pixels.back()) {
+                throw std::runtime_error("Failed to load texture image.");
+            }
         }
+
+        const vk::DeviceSize imageSize = texWidth * texHeight * 4 * 6;
 
         vk::Buffer stagingBuffer;
         vk::DeviceMemory stagingBufferMemory;
@@ -408,20 +441,26 @@ class HelloTriangle {
                      stagingBuffer, stagingBufferMemory);
 
         const auto data = device.mapMemory(stagingBufferMemory, 0, imageSize);
-        memcpy(data, pixels, imageSize);
+        for (size_t i = 0; i < pixels.size(); ++i) {
+            const auto offset = i * texWidth * texHeight * 4;
+            memcpy(static_cast<char*>(data) + offset, pixels[i], texWidth * texHeight * 4);
+        }
         device.unmapMemory(stagingBufferMemory);
 
-        stbi_image_free(pixels);
+        for (auto& pixel : pixels) {
+            stbi_image_free(pixel);
+        }
 
         createImage(texWidth, texHeight, vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
                     vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
-                    vk::MemoryPropertyFlagBits::eDeviceLocal, textureImage, textureImageMemory);
+                    vk::MemoryPropertyFlagBits::eDeviceLocal, textureImage, textureImageMemory, 6,
+                    vk::ImageCreateFlagBits::eCubeCompatible);
 
         transitionImageLayout(textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageLayout::eUndefined,
-                              vk::ImageLayout::eTransferDstOptimal);
-        copyBufferToImage(stagingBuffer, textureImage, texWidth, texHeight);
+                              vk::ImageLayout::eTransferDstOptimal, 6);
+        copyBufferToImage(stagingBuffer, textureImage, texWidth, texHeight, 6);
         transitionImageLayout(textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageLayout::eTransferDstOptimal,
-                              vk::ImageLayout::eShaderReadOnlyOptimal);
+                              vk::ImageLayout::eShaderReadOnlyOptimal, 6);
 
         device.destroyBuffer(stagingBuffer);
         device.freeMemory(stagingBufferMemory);
@@ -872,7 +911,7 @@ class HelloTriangle {
             .lineWidth = 1.0f,
             // .cullMode = vk::CullModeFlagBits::eBack,
             // .frontFace = vk::FrontFace::eClockwise,
-            .cullMode = vk::CullModeFlagBits::eBack,
+            .cullMode = vk::CullModeFlagBits::eNone,
             .frontFace = vk::FrontFace::eCounterClockwise,
             .depthBiasEnable = VK_FALSE,
             .depthBiasConstantFactor = 0.0f,
@@ -977,11 +1016,13 @@ class HelloTriangle {
 
     [[nodiscard]] vk::ImageView createImageView(const vk::Image& image,
                                                 const vk::Format format,
-                                                vk::ImageAspectFlagBits aspectFlags) const {
+                                                const vk::ImageAspectFlagBits aspectFlags,
+                                                const vk::ImageViewType viewType,
+                                                const uint32_t layerCount) const {
         const vk::ImageViewCreateInfo createInfo{
             .sType = vk::StructureType::eImageViewCreateInfo,
             .image = image,
-            .viewType = vk::ImageViewType::e2D,
+            .viewType = viewType,
             .format = format,
             .components.r = vk::ComponentSwizzle::eIdentity,
             .components.g = vk::ComponentSwizzle::eIdentity,
@@ -991,7 +1032,7 @@ class HelloTriangle {
             .subresourceRange.baseMipLevel = 0,
             .subresourceRange.levelCount = 1,
             .subresourceRange.baseArrayLayer = 0,
-            .subresourceRange.layerCount = 1,
+            .subresourceRange.layerCount = layerCount,
         };
 
         return device.createImageView(createInfo);
@@ -1001,8 +1042,8 @@ class HelloTriangle {
         swapChainImageViews.resize(swapChainImages.size());
 
         for (size_t i = 0; i < swapChainImages.size(); i++) {
-            swapChainImageViews[i] =
-                createImageView(swapChainImages[i], swapChainImageFormat, vk::ImageAspectFlagBits::eColor);
+            swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat,
+                                                     vk::ImageAspectFlagBits::eColor, vk::ImageViewType::e2D, 1);
         }
     }
 
