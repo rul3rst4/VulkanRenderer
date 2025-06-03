@@ -1,0 +1,14 @@
+[requires]
+glfw/3.4
+glm/1.0.1
+fmt/11.0.2
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[options]
+glfw/*:shared=False
+
+[layout]
+cmake_layout
