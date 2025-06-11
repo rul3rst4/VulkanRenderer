@@ -31,6 +31,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # add the executable
 add_executable(VulkanTutorial main.cpp)
-target_compile_options(VulkanTutorial PUBLIC -Wall -Wextra -Werror -Wunused -Wpedantic -Wno-reorder-init-list -Wno-c99-designator)
+target_compile_options(VulkanTutorial PUBLIC -Wall -Wextra -Werror -Wunused -Wpedantic -Wno-reorder-init-list -Wno-c99-designator -Wno-missing-field-initializers -Wno-deprecated-declarations)
 
 target_link_libraries(${PROJECT_NAME} glfw Vulkan::Vulkan glm::glm fmt::fmt)

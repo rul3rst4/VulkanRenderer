@@ -12,6 +12,8 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <chrono>
@@ -192,6 +194,15 @@ class HelloTriangle {
     std::vector<vk::Buffer> uniformBufers;
     std::vector<vk::DeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMapped;
+
+    // Offscreen rendering resources
+    vk::RenderPass offscreenRenderPass;
+    vk::Pipeline offscreenPipeline;
+    vk::PipelineLayout offscreenPipelineLayout;
+    std::vector<vk::Framebuffer> offscreenFramebuffers;
+    std::vector<vk::ImageView> offscreenImageViews;
+    vk::CommandBuffer offscreenCommandBuffer;
+
     // TODO: Destruir tudo. Ou criando unique_ptrs ou usando vk_raii
 
     bool framebufferResized = false;
@@ -199,30 +210,29 @@ class HelloTriangle {
     uint32_t currentFrame{};
 
     static constexpr std::array<Vertex, 8> vertices = {{
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {-1.0f, -1.0f, -1.0f}},  // 0
-    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, -1.0f, -1.0f}},     // 1
-    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f, -1.0f}},       // 2
-    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {-1.0f, 1.0f, -1.0f}},     // 3
-    {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 1.0f}, {-1.0f, -1.0f, 1.0f}},     // 4
-    {{0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}, {1.0f, -1.0f, 1.0f}},       // 5
-    {{0.5f, 0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}},         // 6
-    {{-0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {-1.0f, 1.0f, 1.0f}},       // 7
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {-1.0f, -1.0f, -1.0f}},  // 0
+        {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, -1.0f, -1.0f}},    // 1
+        {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f, -1.0f}},      // 2
+        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {-1.0f, 1.0f, -1.0f}},    // 3
+        {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 1.0f}, {-1.0f, -1.0f, 1.0f}},    // 4
+        {{0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}, {1.0f, -1.0f, 1.0f}},      // 5
+        {{0.5f, 0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}},        // 6
+        {{-0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {-1.0f, 1.0f, 1.0f}},      // 7
     }};
 
     static constexpr std::array<uint32_t, 36> indices = {
-    // Front face (z = 0.5)
-    4, 5, 6, 4, 6, 7,
-    // Back face (z = -0.5)
-    1, 0, 3, 1, 3, 2,
-    // Left face (x = -0.5)
-    0, 4, 7, 0, 7, 3,
-    // Right face (x = 0.5)
-    5, 1, 2, 5, 2, 6,
-    // Bottom face (y = -0.5)
-    0, 1, 5, 0, 5, 4,
-    // Top face (y = 0.5)
-    3, 7, 6, 3, 6, 2
-        };
+        // Front face (z = 0.5)
+        4, 5, 6, 4, 6, 7,
+        // Back face (z = -0.5)
+        1, 0, 3, 1, 3, 2,
+        // Left face (x = -0.5)
+        0, 4, 7, 0, 7, 3,
+        // Right face (x = 0.5)
+        5, 1, 2, 5, 2, 6,
+        // Bottom face (y = -0.5)
+        0, 1, 5, 0, 5, 4,
+        // Top face (y = 0.5)
+        3, 7, 6, 3, 6, 2};
 
     void initVulkan() {
         createVkInstance();
@@ -237,7 +247,14 @@ class HelloTriangle {
         createCommandPool();
         createDepthResources();
         createFramebuffers();
-        createTextureImage();
+
+        createEmptyCubemapTexture();
+        createOffscreenRenderPass();
+        createOffscreenPipeline();
+        createOffscreenFramebuffers();
+        renderToCubemap();
+        saveCubemapToPNG();
+
         createTextureImageView();
         createTextureSampler();
         createVertexBuffer();
@@ -419,52 +436,15 @@ class HelloTriangle {
         device.bindImageMemory(image, imageMemory, 0);
     }
 
-    void createTextureImage() {
-        int texWidth, texHeight, texChannels;
+    void createEmptyCubemapTexture() {
+        // Create empty cubemap with viewport dimensions
+        const uint32_t cubemapSize = std::max(swapChainExtent.width, swapChainExtent.height);
 
-        std::vector<stbi_uc*> pixels;
-
-        for (const auto& face : std::array{"right", "left", "top", "bottom", "front", "back"}) {
-            pixels.push_back(
-                stbi_load(fmt::format("/Users/andersonkulitch/Documents/dev/vulkan/texture/{}.jpg", face).c_str(),
-                          &texWidth, &texHeight, &texChannels, STBI_rgb_alpha));
-            if (!pixels.back()) {
-                throw std::runtime_error("Failed to load texture image.");
-            }
-        }
-
-        const vk::DeviceSize imageSize = texWidth * texHeight * 4 * 6;
-
-        vk::Buffer stagingBuffer;
-        vk::DeviceMemory stagingBufferMemory;
-        createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
-                     vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-                     stagingBuffer, stagingBufferMemory);
-
-        const auto data = device.mapMemory(stagingBufferMemory, 0, imageSize);
-        for (size_t i = 0; i < pixels.size(); ++i) {
-            const auto offset = i * texWidth * texHeight * 4;
-            memcpy(static_cast<char*>(data) + offset, pixels[i], texWidth * texHeight * 4);
-        }
-        device.unmapMemory(stagingBufferMemory);
-
-        for (auto& pixel : pixels) {
-            stbi_image_free(pixel);
-        }
-
-        createImage(texWidth, texHeight, vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
-                    vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
+        createImage(cubemapSize, cubemapSize, vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
+                    vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled |
+                        vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst,
                     vk::MemoryPropertyFlagBits::eDeviceLocal, textureImage, textureImageMemory, 6,
                     vk::ImageCreateFlagBits::eCubeCompatible);
-
-        transitionImageLayout(textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageLayout::eUndefined,
-                              vk::ImageLayout::eTransferDstOptimal, 6);
-        copyBufferToImage(stagingBuffer, textureImage, texWidth, texHeight, 6);
-        transitionImageLayout(textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageLayout::eTransferDstOptimal,
-                              vk::ImageLayout::eShaderReadOnlyOptimal, 6);
-
-        device.destroyBuffer(stagingBuffer);
-        device.freeMemory(stagingBufferMemory);
     }
 
     void createDescriptorSets() {
@@ -1019,7 +999,8 @@ class HelloTriangle {
                                                 const vk::Format format,
                                                 const vk::ImageAspectFlagBits aspectFlags,
                                                 const vk::ImageViewType viewType,
-                                                const uint32_t layerCount) const {
+                                                const uint32_t layerCount,
+                                                const uint32_t baseArrayLayer = 0) const {
         const vk::ImageViewCreateInfo createInfo{
             .sType = vk::StructureType::eImageViewCreateInfo,
             .image = image,
@@ -1032,7 +1013,7 @@ class HelloTriangle {
             .subresourceRange.aspectMask = aspectFlags,
             .subresourceRange.baseMipLevel = 0,
             .subresourceRange.levelCount = 1,
-            .subresourceRange.baseArrayLayer = 0,
+            .subresourceRange.baseArrayLayer = baseArrayLayer,
             .subresourceRange.layerCount = layerCount,
         };
 
@@ -1436,8 +1417,348 @@ class HelloTriangle {
         std::memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
     }
 
+    void createOffscreenRenderPass() {
+        vk::AttachmentDescription colorAttachment{.format = vk::Format::eR8G8B8A8Srgb,
+                                                  .samples = vk::SampleCountFlagBits::e1,
+                                                  .loadOp = vk::AttachmentLoadOp::eClear,
+                                                  .storeOp = vk::AttachmentStoreOp::eStore,
+                                                  .stencilLoadOp = vk::AttachmentLoadOp::eDontCare,
+                                                  .stencilStoreOp = vk::AttachmentStoreOp::eDontCare,
+                                                  .initialLayout = vk::ImageLayout::eUndefined,
+                                                  .finalLayout = vk::ImageLayout::eShaderReadOnlyOptimal};
+
+        vk::AttachmentReference colorAttachmentRef{.attachment = 0, .layout = vk::ImageLayout::eColorAttachmentOptimal};
+
+        vk::SubpassDescription subpass{.pipelineBindPoint = vk::PipelineBindPoint::eGraphics,
+                                       .colorAttachmentCount = 1,
+                                       .pColorAttachments = &colorAttachmentRef};
+
+        vk::SubpassDependency dependency{.srcSubpass = vk::SubpassExternal,
+                                         .dstSubpass = 0,
+                                         .srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                                         .dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                                         .srcAccessMask = vk::AccessFlags{},
+                                         .dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite};
+
+        vk::RenderPassCreateInfo renderPassInfo{.sType = vk::StructureType::eRenderPassCreateInfo,
+                                                .attachmentCount = 1,
+                                                .pAttachments = &colorAttachment,
+                                                .subpassCount = 1,
+                                                .pSubpasses = &subpass,
+                                                .dependencyCount = 1,
+                                                .pDependencies = &dependency};
+
+        offscreenRenderPass = device.createRenderPass(renderPassInfo);
+    }
+
+    void createOffscreenPipeline() {
+        auto vertShaderModule = createShaderModule(readFile("shaders/offscreen_vert.spv"));
+        auto fragShaderModule = createShaderModule(readFile("shaders/offscreen_frag.spv"));
+
+        vk::PipelineShaderStageCreateInfo vertShaderStageInfo{
+            .sType = vk::StructureType::ePipelineShaderStageCreateInfo,
+            .stage = vk::ShaderStageFlagBits::eVertex,
+            .module = vertShaderModule,
+            .pName = "main"};
+
+        vk::PipelineShaderStageCreateInfo fragShaderStageInfo{
+            .sType = vk::StructureType::ePipelineShaderStageCreateInfo,
+            .stage = vk::ShaderStageFlagBits::eFragment,
+            .module = fragShaderModule,
+            .pName = "main"};
+
+        vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+        vk::PipelineVertexInputStateCreateInfo vertexInputInfo{
+            .sType = vk::StructureType::ePipelineVertexInputStateCreateInfo,
+            .vertexBindingDescriptionCount = 0,
+            .vertexAttributeDescriptionCount = 0};
+
+        vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
+            .sType = vk::StructureType::ePipelineInputAssemblyStateCreateInfo,
+            .topology = vk::PrimitiveTopology::eTriangleList,
+            .primitiveRestartEnable = vk::False};
+
+        const uint32_t cubemapSize = std::max(swapChainExtent.width, swapChainExtent.height);
+        vk::Viewport viewport{.x = 0.0f,
+                              .y = 0.0f,
+                              .width = static_cast<float>(cubemapSize),
+                              .height = static_cast<float>(cubemapSize),
+                              .minDepth = 0.0f,
+                              .maxDepth = 1.0f};
+
+        vk::Rect2D scissor{.offset = {0, 0}, .extent = {cubemapSize, cubemapSize}};
+
+        vk::PipelineViewportStateCreateInfo viewportState{.sType = vk::StructureType::ePipelineViewportStateCreateInfo,
+                                                          .viewportCount = 1,
+                                                          .pViewports = &viewport,
+                                                          .scissorCount = 1,
+                                                          .pScissors = &scissor};
+
+        vk::PipelineRasterizationStateCreateInfo rasterizer{
+            .sType = vk::StructureType::ePipelineRasterizationStateCreateInfo,
+            .depthClampEnable = vk::False,
+            .rasterizerDiscardEnable = vk::False,
+            .polygonMode = vk::PolygonMode::eFill,
+            .cullMode = vk::CullModeFlagBits::eNone,
+            .frontFace = vk::FrontFace::eCounterClockwise,
+            .depthBiasEnable = vk::False,
+            .lineWidth = 1.0f};
+
+        vk::PipelineMultisampleStateCreateInfo multisampling{
+            .sType = vk::StructureType::ePipelineMultisampleStateCreateInfo,
+            .rasterizationSamples = vk::SampleCountFlagBits::e1,
+            .sampleShadingEnable = vk::False};
+
+        vk::PipelineColorBlendAttachmentState colorBlendAttachment{
+            .blendEnable = vk::False,
+            .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+                              vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA};
+
+        vk::PipelineColorBlendStateCreateInfo colorBlending{
+            .sType = vk::StructureType::ePipelineColorBlendStateCreateInfo,
+            .logicOpEnable = vk::False,
+            .attachmentCount = 1,
+            .pAttachments = &colorBlendAttachment};
+
+        vk::PushConstantRange pushConstantRange{
+            .stageFlags = vk::ShaderStageFlagBits::eVertex, .offset = 0, .size = sizeof(glm::vec3)};
+
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{.sType = vk::StructureType::ePipelineLayoutCreateInfo,
+                                                        .setLayoutCount = 0,
+                                                        .pushConstantRangeCount = 1,
+                                                        .pPushConstantRanges = &pushConstantRange};
+
+        offscreenPipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
+
+        vk::GraphicsPipelineCreateInfo pipelineInfo{.sType = vk::StructureType::eGraphicsPipelineCreateInfo,
+                                                    .stageCount = 2,
+                                                    .pStages = shaderStages,
+                                                    .pVertexInputState = &vertexInputInfo,
+                                                    .pInputAssemblyState = &inputAssembly,
+                                                    .pViewportState = &viewportState,
+                                                    .pRasterizationState = &rasterizer,
+                                                    .pMultisampleState = &multisampling,
+                                                    .pColorBlendState = &colorBlending,
+                                                    .layout = offscreenPipelineLayout,
+                                                    .renderPass = offscreenRenderPass,
+                                                    .subpass = 0};
+
+        auto result = device.createGraphicsPipeline(nullptr, pipelineInfo);
+        offscreenPipeline = result.value;
+
+        device.destroyShaderModule(fragShaderModule);
+        device.destroyShaderModule(vertShaderModule);
+    }
+
+    void createOffscreenFramebuffers() {
+        const uint32_t cubemapSize = std::max(swapChainExtent.width, swapChainExtent.height);
+        offscreenFramebuffers.resize(6);
+        offscreenImageViews.resize(6);
+
+        for (uint32_t i = 0; i < 6; ++i) {
+            offscreenImageViews[i] = createImageView(textureImage, vk::Format::eR8G8B8A8Srgb,
+                                                     vk::ImageAspectFlagBits::eColor, vk::ImageViewType::e2D, 1, i);
+
+            vk::FramebufferCreateInfo framebufferInfo{.sType = vk::StructureType::eFramebufferCreateInfo,
+                                                      .renderPass = offscreenRenderPass,
+                                                      .attachmentCount = 1,
+                                                      .pAttachments = &offscreenImageViews[i],
+                                                      .width = cubemapSize,
+                                                      .height = cubemapSize,
+                                                      .layers = 1};
+
+            offscreenFramebuffers[i] = device.createFramebuffer(framebufferInfo);
+        }
+    }
+
+    void renderToCubemap() {
+        // Colors for each face: Red, Green, Blue, Magenta, Cyan, White
+        const std::array<glm::vec3, 6> faceColors = {{
+            {1.0f, 0.0f, 0.0f},  // Face 0: Red
+            {0.0f, 1.0f, 0.0f},  // Face 1: Green
+            {0.0f, 0.0f, 1.0f},  // Face 2: Blue
+            {1.0f, 0.0f, 1.0f},  // Face 3: Magenta
+            {0.0f, 1.0f, 1.0f},  // Face 4: Cyan
+            {1.0f, 1.0f, 1.0f}   // Face 5: White
+        }};
+
+        // Allocate command buffer for offscreen rendering
+        vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
+                                                .commandPool = commandPool,
+                                                .level = vk::CommandBufferLevel::ePrimary,
+                                                .commandBufferCount = 1};
+
+        offscreenCommandBuffer = device.allocateCommandBuffers(allocInfo)[0];
+
+        vk::CommandBufferBeginInfo beginInfo{.sType = vk::StructureType::eCommandBufferBeginInfo,
+                                             .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
+
+        offscreenCommandBuffer.begin(beginInfo);
+
+        for (uint32_t face = 0; face < 6; ++face) {
+            // Transition this face from shader read only to color attachment optimal
+            vk::ImageMemoryBarrier barrier{
+                .sType = vk::StructureType::eImageMemoryBarrier,
+                .srcAccessMask = vk::AccessFlagBits::eShaderRead,
+                .dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
+                .oldLayout = vk::ImageLayout::eUndefined,
+                .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
+                .srcQueueFamilyIndex = vk::QueueFamilyIgnored,
+                .dstQueueFamilyIndex = vk::QueueFamilyIgnored,
+                .image = textureImage,
+                .subresourceRange = vk::ImageSubresourceRange{.aspectMask = vk::ImageAspectFlagBits::eColor,
+                                                              .baseMipLevel = 0,
+                                                              .levelCount = 1,
+                                                              .baseArrayLayer = face,
+                                                              .layerCount = 1}};
+
+            offscreenCommandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eFragmentShader,
+                                                   vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                                                   vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            vk::ClearValue clearColor{};
+            clearColor.color.float32[0] = 0.0f;
+            clearColor.color.float32[1] = 0.0f;
+            clearColor.color.float32[2] = 0.0f;
+            clearColor.color.float32[3] = 1.0f;
+
+            const uint32_t cubemapSize = std::max(swapChainExtent.width, swapChainExtent.height);
+            vk::RenderPassBeginInfo renderPassInfo{.sType = vk::StructureType::eRenderPassBeginInfo,
+                                                   .renderPass = offscreenRenderPass,
+                                                   .framebuffer = offscreenFramebuffers[face],
+                                                   .renderArea = {{0, 0}, {cubemapSize, cubemapSize}},
+                                                   .clearValueCount = 1,
+                                                   .pClearValues = &clearColor};
+
+            offscreenCommandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
+            offscreenCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, offscreenPipeline);
+
+            // Push the color for this face
+            offscreenCommandBuffer.pushConstants(offscreenPipelineLayout, vk::ShaderStageFlagBits::eVertex, 0,
+                                                 sizeof(glm::vec3), &faceColors[face]);
+
+            offscreenCommandBuffer.draw(6, 1, 0, 0);
+            offscreenCommandBuffer.endRenderPass();
+
+            // Transition this face back to shader read only optimal
+            barrier.srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+            barrier.oldLayout = vk::ImageLayout::eUndefined;
+            barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+            offscreenCommandBuffer.pipelineBarrier(
+                vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                vk::PipelineStageFlagBits::eFragmentShader,
+                vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 1, &barrier);
+        }
+
+        offscreenCommandBuffer.end();
+
+        // Submit the command buffer
+        vk::SubmitInfo submitInfo{.sType = vk::StructureType::eSubmitInfo,
+                                  .commandBufferCount = 1,
+                                  .pCommandBuffers = &offscreenCommandBuffer};
+
+        vk::detail::resultCheck(graphicsQueue.submit(1, &submitInfo, nullptr),
+                                "Failed to submit offscreen rendering commands");
+        graphicsQueue.waitIdle();
+
+        device.freeCommandBuffers(commandPool, 1, &offscreenCommandBuffer);
+    }
+
+    void saveCubemapToPNG() {
+        const uint32_t cubemapSize = std::max(swapChainExtent.width, swapChainExtent.height);
+        const vk::DeviceSize imageSize = cubemapSize * cubemapSize * 4;
+
+        // Create staging buffer
+        vk::Buffer stagingBuffer;
+        vk::DeviceMemory stagingBufferMemory;
+        createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferDst,
+                     vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+                     stagingBuffer, stagingBufferMemory);
+
+        const std::array<std::string, 6> faceNames = {"face0_red",     "face1_green", "face2_blue",
+                                                      "face3_magenta", "face4_cyan",  "face5_white"};
+
+        // Save each face individually
+        for (uint32_t face = 0; face < 6; ++face) {
+            // Copy each face to staging buffer and save
+            {
+                auto commandBuffer = ScopedOneTimeCommandBuffer(device, commandPool, graphicsQueue);
+
+                // // Transition image layout for transfer
+                vk::ImageMemoryBarrier barrier{
+                    .sType = vk::StructureType::eImageMemoryBarrier,
+                    .srcAccessMask = vk::AccessFlagBits::eShaderRead,
+                    .dstAccessMask = vk::AccessFlagBits::eTransferRead,
+                    .oldLayout = vk::ImageLayout::eUndefined,
+                    .newLayout = vk::ImageLayout::eTransferSrcOptimal,
+                    .srcQueueFamilyIndex = vk::QueueFamilyIgnored,
+                    .dstQueueFamilyIndex = vk::QueueFamilyIgnored,
+                    .image = textureImage,
+                    .subresourceRange = vk::ImageSubresourceRange{.aspectMask = vk::ImageAspectFlagBits::eColor,
+                                                                  .baseMipLevel = 0,
+                                                                  .levelCount = 1,
+                                                                  .baseArrayLayer = face,
+                                                                  .layerCount = 1}};
+
+                commandBuffer.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eFragmentShader,
+                                                            vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{},
+                                                            0, nullptr, 0, nullptr, 1, &barrier);
+
+                // Copy image to buffer
+                vk::BufferImageCopy region{
+                    .bufferOffset = 0,
+                    .bufferRowLength = 0,
+                    .bufferImageHeight = 0,
+                    .imageSubresource = vk::ImageSubresourceLayers{.aspectMask = vk::ImageAspectFlagBits::eColor,
+                                                                   .mipLevel = 0,
+                                                                   .baseArrayLayer = face,
+                                                                   .layerCount = 1},
+                    .imageOffset = {0, 0, 0},
+                    .imageExtent = {cubemapSize, cubemapSize, 1}};
+
+                commandBuffer.commandBuffer.copyImageToBuffer(textureImage, vk::ImageLayout::eTransferSrcOptimal,
+                                                              stagingBuffer, 1, &region);
+
+                // // Transition back to shader read only
+                barrier.oldLayout = vk::ImageLayout::eUndefined;
+                barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+                barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
+                barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
+                commandBuffer.commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                                                            vk::PipelineStageFlagBits::eFragmentShader,
+                                                            vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 1, &barrier);
+            }
+
+            // Map memory and save this face to PNG
+            void* data = device.mapMemory(stagingBufferMemory, 0, imageSize);
+            const std::string filename = faceNames[face] + ".png";
+            stbi_write_png(filename.c_str(), cubemapSize, cubemapSize, 4, static_cast<char*>(data), cubemapSize * 4);
+            device.unmapMemory(stagingBufferMemory);
+
+            fmt::print("Saved cubemap face {} to {}\n", face, filename);
+        }
+
+        device.destroyBuffer(stagingBuffer);
+        device.freeMemory(stagingBufferMemory);
+    }
+
     void cleanup() const {
         glfwTerminate();
+
+        // Clean up offscreen rendering resources
+        for (auto& framebuffer : offscreenFramebuffers) {
+            device.destroyFramebuffer(framebuffer);
+        }
+        for (auto& imageView : offscreenImageViews) {
+            device.destroyImageView(imageView);
+        }
+        device.destroyPipeline(offscreenPipeline);
+        device.destroyPipelineLayout(offscreenPipelineLayout);
+        device.destroyRenderPass(offscreenRenderPass);
 
         device.destroyBuffer(vertexBuffer);
         device.freeMemory(vertexBufferMemory);
@@ -1485,8 +1806,8 @@ class HelloTriangle {
     void run() {
         initWindow();
         initVulkan();
-        mainLoop();
-        cleanup();
+        // mainLoop();
+        // cleanup();
     }
 };
 
