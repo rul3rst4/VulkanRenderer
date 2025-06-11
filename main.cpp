@@ -1927,8 +1927,8 @@ class HelloTriangle {
     void run() {
         initWindow();
         initVulkan();
-        // mainLoop();
-        // cleanup();
+        mainLoop();
+        cleanup();
     }
 };
 
