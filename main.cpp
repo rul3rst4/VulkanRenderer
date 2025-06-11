@@ -32,6 +32,27 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 proj;
 };
 
+struct OffscreenVertex {
+    glm::vec3 pos;
+    glm::vec4 color;  // r, g, b, face_id
+
+    constexpr static vk::VertexInputBindingDescription getBindingDescription() {
+        constexpr vk::VertexInputBindingDescription bindingDescription{
+            .binding = 0, .stride = sizeof(OffscreenVertex), .inputRate = vk::VertexInputRate::eVertex};
+
+        return bindingDescription;
+    }
+
+    constexpr static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        constexpr std::array<vk::VertexInputAttributeDescription, 2> attributeDescriptions{{
+            {.location = 0, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(OffscreenVertex, pos)},
+            {.location = 1, .binding = 0, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(OffscreenVertex, color)},
+        }};
+
+        return attributeDescriptions;
+    }
+};
+
 struct Vertex {
     glm::vec3 pos;
     glm::vec3 color;
@@ -171,6 +192,12 @@ class HelloTriangle {
     vk::Buffer indexBuffer;
     vk::DeviceMemory indexBufferMemory;
 
+    // Offscreen rendering buffers
+    vk::Buffer offscreenVertexBuffer;
+    vk::DeviceMemory offscreenVertexBufferMemory;
+    vk::Buffer offscreenIndexBuffer;
+    vk::DeviceMemory offscreenIndexBufferMemory;
+
     vk::Image textureImage;
     vk::DeviceMemory textureImageMemory;
     vk::ImageView textureImageView;
@@ -234,6 +261,50 @@ class HelloTriangle {
         // Top face (y = 0.5)
         3, 7, 6, 3, 6, 2};
 
+    // Offscreen rendering vertex data for cubemap faces
+    // x, y, z, r, g, b, face_id
+    static constexpr std::array<OffscreenVertex, 24> offscreenVertices = {{
+        // quad 0 with red color
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{-1.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        {{1.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 0.0f}},
+        // quad 1 with green color
+        {{-1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+        {{1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+        {{-1.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+        {{1.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
+        // quad 2 with blue color
+        {{-1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 2.0f}},
+        {{1.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 2.0f}},
+        {{-1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 2.0f}},
+        {{1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 2.0f}},
+        // quad 3 with yellow color
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 0.0f, 3.0f}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 0.0f, 3.0f}},
+        {{-1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f, 3.0f}},
+        {{1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 0.0f, 3.0f}},
+        // quad 4 with cyan color
+        {{-1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 1.0f, 4.0f}},
+        {{1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 1.0f, 4.0f}},
+        {{-1.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 1.0f, 4.0f}},
+        {{1.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 1.0f, 4.0f}},
+        // quad 5 with white color
+        {{-1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 5.0f}},
+        {{1.0f, -1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 5.0f}},
+        {{-1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 5.0f}},
+        {{1.0f, 1.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 5.0f}},
+    }};
+
+    static constexpr std::array<uint32_t, 36> offscreenIndices = {
+        0, 1, 2, 1, 3, 2,
+        4, 5, 6, 5, 7, 6,
+        8, 9, 10, 9, 11, 10,
+        12, 13, 14, 13, 15, 14,
+        16, 17, 18, 17, 19, 18,
+        20, 21, 22, 21, 23, 22
+    };
+
     void initVulkan() {
         createVkInstance();
         createSurface();
@@ -251,6 +322,8 @@ class HelloTriangle {
         createEmptyCubemapTexture();
         createOffscreenRenderPass();
         createOffscreenPipeline();
+        createOffscreenVertexBuffer();
+        createOffscreenIndexBuffer();
         createOffscreenFramebuffers();
         renderToCubemap();
         saveCubemapToPNG();
@@ -552,22 +625,22 @@ class HelloTriangle {
         constexpr vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
 
         vk::Buffer stagingBuffer;
-        vk::DeviceMemory statingBufferMemory;
+        vk::DeviceMemory stagingBufferMemory;
 
         createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc,
                      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-                     stagingBuffer, statingBufferMemory);
+                     stagingBuffer, stagingBufferMemory);
 
-        const auto data = device.mapMemory(statingBufferMemory, 0, bufferSize);
+        const auto data = device.mapMemory(stagingBufferMemory, 0, bufferSize);
         memcpy(data, indices.data(), bufferSize);
-        device.unmapMemory(statingBufferMemory);
+        device.unmapMemory(stagingBufferMemory);
 
         createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer,
                      vk::MemoryPropertyFlagBits::eDeviceLocal, indexBuffer, indexBufferMemory);
 
         copyBuffer(stagingBuffer, indexBuffer, bufferSize);
         device.destroyBuffer(stagingBuffer);
-        device.freeMemory(statingBufferMemory);
+        device.freeMemory(stagingBufferMemory);
     }
 
     void createBuffer(const vk::DeviceSize size,
@@ -613,6 +686,50 @@ class HelloTriangle {
         copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
         device.destroyBuffer(stagingBuffer);
         device.freeMemory(statingBufferMemory);
+    }
+
+    void createOffscreenVertexBuffer() {
+        constexpr vk::DeviceSize bufferSize = sizeof(offscreenVertices[0]) * offscreenVertices.size();
+
+        vk::Buffer stagingBuffer;
+        vk::DeviceMemory stagingBufferMemory;
+
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc,
+                     vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+                     stagingBuffer, stagingBufferMemory);
+
+        const auto data = device.mapMemory(stagingBufferMemory, 0, bufferSize);
+        memcpy(data, offscreenVertices.data(), bufferSize);
+        device.unmapMemory(stagingBufferMemory);
+
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
+                     vk::MemoryPropertyFlagBits::eDeviceLocal, offscreenVertexBuffer, offscreenVertexBufferMemory);
+
+        copyBuffer(stagingBuffer, offscreenVertexBuffer, bufferSize);
+        device.destroyBuffer(stagingBuffer);
+        device.freeMemory(stagingBufferMemory);
+    }
+
+    void createOffscreenIndexBuffer() {
+        constexpr vk::DeviceSize bufferSize = sizeof(offscreenIndices[0]) * offscreenIndices.size();
+
+        vk::Buffer stagingBuffer;
+        vk::DeviceMemory stagingBufferMemory;
+
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferSrc,
+                     vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+                     stagingBuffer, stagingBufferMemory);
+
+        const auto data = device.mapMemory(stagingBufferMemory, 0, bufferSize);
+        memcpy(data, offscreenIndices.data(), bufferSize);
+        device.unmapMemory(stagingBufferMemory);
+
+        createBuffer(bufferSize, vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer,
+                     vk::MemoryPropertyFlagBits::eDeviceLocal, offscreenIndexBuffer, offscreenIndexBufferMemory);
+
+        copyBuffer(stagingBuffer, offscreenIndexBuffer, bufferSize);
+        device.destroyBuffer(stagingBuffer);
+        device.freeMemory(stagingBufferMemory);
     }
 
     void copyBuffer(const vk::Buffer srcBuffer, const vk::Buffer dstBuffer, const vk::DeviceSize size) const {
@@ -813,12 +930,12 @@ class HelloTriangle {
         std::array<vk::AttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
 
         const vk::RenderPassCreateInfo renderPassInfo{.sType = vk::StructureType::eRenderPassCreateInfo,
-                                                      .attachmentCount = attachments.size(),
-                                                      .pAttachments = attachments.data(),
-                                                      .subpassCount = 1,
-                                                      .pSubpasses = &subpass,
-                                                      .dependencyCount = 1,
-                                                      .pDependencies = &dependency};
+                                        .attachmentCount = attachments.size(),
+                                        .pAttachments = attachments.data(),
+                                        .subpassCount = 1,
+                                        .pSubpasses = &subpass,
+                                        .dependencyCount = 1,
+                                        .pDependencies = &dependency};
 
         renderPass = device.createRenderPass(renderPassInfo);
     }
@@ -1469,10 +1586,15 @@ class HelloTriangle {
 
         vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
+        auto bindingDescription = OffscreenVertex::getBindingDescription();
+        auto attributeDescriptions = OffscreenVertex::getAttributeDescriptions();
+
         vk::PipelineVertexInputStateCreateInfo vertexInputInfo{
             .sType = vk::StructureType::ePipelineVertexInputStateCreateInfo,
-            .vertexBindingDescriptionCount = 0,
-            .vertexAttributeDescriptionCount = 0};
+            .vertexBindingDescriptionCount = 1,
+            .pVertexBindingDescriptions = &bindingDescription,
+            .vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size()),
+            .pVertexAttributeDescriptions = attributeDescriptions.data()};
 
         vk::PipelineInputAssemblyStateCreateInfo inputAssembly{
             .sType = vk::StructureType::ePipelineInputAssemblyStateCreateInfo,
@@ -1521,13 +1643,10 @@ class HelloTriangle {
             .attachmentCount = 1,
             .pAttachments = &colorBlendAttachment};
 
-        vk::PushConstantRange pushConstantRange{
-            .stageFlags = vk::ShaderStageFlagBits::eVertex, .offset = 0, .size = sizeof(glm::vec3)};
-
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{.sType = vk::StructureType::ePipelineLayoutCreateInfo,
                                                         .setLayoutCount = 0,
-                                                        .pushConstantRangeCount = 1,
-                                                        .pPushConstantRanges = &pushConstantRange};
+                                                        .pushConstantRangeCount = 0,
+                                                        .pPushConstantRanges = nullptr};
 
         offscreenPipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
 
@@ -1573,16 +1692,6 @@ class HelloTriangle {
     }
 
     void renderToCubemap() {
-        // Colors for each face: Red, Green, Blue, Magenta, Cyan, White
-        const std::array<glm::vec3, 6> faceColors = {{
-            {1.0f, 0.0f, 0.0f},  // Face 0: Red
-            {0.0f, 1.0f, 0.0f},  // Face 1: Green
-            {0.0f, 0.0f, 1.0f},  // Face 2: Blue
-            {1.0f, 0.0f, 1.0f},  // Face 3: Magenta
-            {0.0f, 1.0f, 1.0f},  // Face 4: Cyan
-            {1.0f, 1.0f, 1.0f}   // Face 5: White
-        }};
-
         // Allocate command buffer for offscreen rendering
         vk::CommandBufferAllocateInfo allocInfo{.sType = vk::StructureType::eCommandBufferAllocateInfo,
                                                 .commandPool = commandPool,
@@ -1634,11 +1743,16 @@ class HelloTriangle {
             offscreenCommandBuffer.beginRenderPass(renderPassInfo, vk::SubpassContents::eInline);
             offscreenCommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, offscreenPipeline);
 
-            // Push the color for this face
-            offscreenCommandBuffer.pushConstants(offscreenPipelineLayout, vk::ShaderStageFlagBits::eVertex, 0,
-                                                 sizeof(glm::vec3), &faceColors[face]);
+            // Bind vertex buffer
+            vk::Buffer vertexBuffers[] = {offscreenVertexBuffer};
+            vk::DeviceSize offsets[] = {0};
+            offscreenCommandBuffer.bindVertexBuffers(0, 1, vertexBuffers, offsets);
 
-            offscreenCommandBuffer.draw(6, 1, 0, 0);
+            // Bind index buffer
+            offscreenCommandBuffer.bindIndexBuffer(offscreenIndexBuffer, 0, vk::IndexType::eUint32);
+
+            // Draw the quad for this face (6 indices per face)
+            offscreenCommandBuffer.drawIndexed(6, 1, face * 6, 0, 0);
             offscreenCommandBuffer.endRenderPass();
 
             // Transition this face back to shader read only optimal
@@ -1679,7 +1793,7 @@ class HelloTriangle {
                      stagingBuffer, stagingBufferMemory);
 
         const std::array<std::string, 6> faceNames = {"face0_red",     "face1_green", "face2_blue",
-                                                      "face3_magenta", "face4_cyan",  "face5_white"};
+                                                      "face3_yellow", "face4_cyan",  "face5_white"};
 
         // Save each face individually
         for (uint32_t face = 0; face < 6; ++face) {
@@ -1765,6 +1879,13 @@ class HelloTriangle {
 
         device.destroyBuffer(indexBuffer);
         device.freeMemory(indexBufferMemory);
+
+        // Clean up offscreen buffers
+        device.destroyBuffer(offscreenVertexBuffer);
+        device.freeMemory(offscreenVertexBufferMemory);
+
+        device.destroyBuffer(offscreenIndexBuffer);
+        device.freeMemory(offscreenIndexBufferMemory);
 
         for (size_t i = 0; i < maxFramesInFlight; i++) {
             device.destroyBuffer(uniformBufers[i]);
