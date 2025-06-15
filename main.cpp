@@ -56,7 +56,6 @@ struct OffscreenVertex {
 struct Vertex {
     glm::vec3 pos;
     glm::vec3 color;
-    glm::vec3 texCoord;
 
     constexpr static vk::VertexInputBindingDescription getBindingDescription() {
         constexpr vk::VertexInputBindingDescription bindingDescription{
@@ -65,11 +64,10 @@ struct Vertex {
         return bindingDescription;
     }
 
-    constexpr static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions() {
-        constexpr std::array<vk::VertexInputAttributeDescription, 3> attributeDescriptions{{
+    constexpr static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        constexpr std::array<vk::VertexInputAttributeDescription, 2> attributeDescriptions{{
             {.binding = 0, .location = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, pos)},
             {.binding = 0, .location = 1, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, color)},
-            {.binding = 0, .location = 2, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, texCoord)},
         }};
 
         return attributeDescriptions;
@@ -237,14 +235,14 @@ class HelloTriangle {
     uint32_t currentFrame{};
 
     static constexpr std::array<Vertex, 8> vertices = {{
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {-1.0f, -1.0f, -1.0f}},  // 0
-        {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, -1.0f, -1.0f}},    // 1
-        {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f, -1.0f}},      // 2
-        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {-1.0f, 1.0f, -1.0f}},    // 3
-        {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 1.0f}, {-1.0f, -1.0f, 1.0f}},    // 4
-        {{0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}, {1.0f, -1.0f, 1.0f}},      // 5
-        {{0.5f, 0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f}},        // 6
-        {{-0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {-1.0f, 1.0f, 1.0f}},      // 7
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},  // 0
+        {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},    // 1
+        {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}},      // 2
+        {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}},    // 3
+        {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 1.0f}},    // 4
+        {{0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}},      // 5
+        {{0.5f, 0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},        // 6
+        {{-0.5f, 0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}},      // 7
     }};
 
     static constexpr std::array<uint32_t, 36> indices = {
@@ -328,15 +326,15 @@ class HelloTriangle {
         renderToCubemap();
         saveCubemapToPNG();
 
-        createTextureImageView();
-        createTextureSampler();
-        createVertexBuffer();
-        createIndexBuffer();
-        createUniformBuffers();
-        createDescriptorPool();
-        createDescriptorSets();
-        createCommandBuffers();
-        createSyncObjects();
+        // createTextureImageView();
+        // createTextureSampler();
+        // createVertexBuffer();
+        // createIndexBuffer();
+        // createUniformBuffers();
+        // createDescriptorPool();
+        // createDescriptorSets();
+        // createCommandBuffers();
+        // createSyncObjects();
     }
 
     void createDepthResources() {
@@ -1367,7 +1365,7 @@ class HelloTriangle {
         }
 
         vk::ApplicationInfo appInfo{.sType = vk::StructureType::eApplicationInfo,
-                                    .pApplicationName = "Hello Triangle",
+                                    .pApplicationName = "Cubemap Renderer",
                                     .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
                                     .pEngineName = "No Engine",
                                     .engineVersion = VK_MAKE_VERSION(1, 0, 0),
@@ -1792,8 +1790,7 @@ class HelloTriangle {
                      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
                      stagingBuffer, stagingBufferMemory);
 
-        const std::array<std::string, 6> faceNames = {"face0_red",     "face1_green", "face2_blue",
-                                                      "face3_yellow", "face4_cyan",  "face5_white"};
+        std::vector<char> pixelData;
 
         // Save each face individually
         for (uint32_t face = 0; face < 6; ++face) {
@@ -1849,12 +1846,21 @@ class HelloTriangle {
 
             // Map memory and save this face to PNG
             void* data = device.mapMemory(stagingBufferMemory, 0, imageSize);
-            const std::string filename = faceNames[face] + ".png";
-            stbi_write_png(filename.c_str(), cubemapSize, cubemapSize, 4, static_cast<char*>(data), cubemapSize * 4);
+            if (!data) {
+                throw std::runtime_error("Failed to map memory for staging buffer.");
+            }
+            pixelData.reserve(pixelData.size() + imageSize);
+            // Copy the data from the staging buffer to pixelData
+            pixelData.insert(pixelData.end(), static_cast<char*>(data), static_cast<char*>(data) + imageSize);
             device.unmapMemory(stagingBufferMemory);
-
-            fmt::print("Saved cubemap face {} to {}\n", face, filename);
         }
+
+            const std::string filename = "texture_output.png";
+
+            stbi_write_png(filename.c_str(), cubemapSize, cubemapSize * 6, 4, pixelData.data(), cubemapSize * 4);
+
+            fmt::print("Saved cubemap faces to {}\n", filename);
+
 
         device.destroyBuffer(stagingBuffer);
         device.freeMemory(stagingBufferMemory);
@@ -1927,7 +1933,7 @@ class HelloTriangle {
     void run() {
         initWindow();
         initVulkan();
-        mainLoop();
+        // mainLoop();
         cleanup();
     }
 };
