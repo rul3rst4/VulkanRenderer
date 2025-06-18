@@ -342,7 +342,7 @@ class CubemapOffcreenRender : public VulkanCore {
             transitionImageLayout(offscreenCommandBuffer.commandBuffer, *textureImage, vk::ImageLayout::eUndefined,
                                   vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits::eColorAttachmentWrite,
                                   vk::AccessFlagBits::eShaderRead, vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                                  vk::PipelineStageFlagBits::eFragmentShader, 1);
+                                  vk::PipelineStageFlagBits::eFragmentShader, 1, face);
         }
     }
 
