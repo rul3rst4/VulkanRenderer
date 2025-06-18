@@ -30,7 +30,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 
 # add the executable
-add_executable(VulkanTutorial main.cpp ScopedOneTimeCommandBuffer.cpp WindowManager.cpp VulkanCore.cpp)
+add_executable(VulkanTutorial main.cpp ScopedOneTimeCommandBuffer.cpp WindowManager.cpp VulkanCore.cpp VulkanCore.hpp)
 target_compile_options(VulkanTutorial PUBLIC -Wall -Wextra -Werror -Wunused -Wpedantic -Wno-reorder-init-list -Wno-c99-designator -Wno-missing-field-initializers -Wno-deprecated-declarations)
 
 target_link_libraries(${PROJECT_NAME} glfw Vulkan::Vulkan glm::glm fmt::fmt)

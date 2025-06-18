@@ -662,3 +662,9 @@ VulkanCore::VulkanCore()
     windowManager.registerResizeCallback(framebufferResizeCallback);
     initCore();
 }
+
+void VulkanCore::runRenderProcesses() {
+    for (const auto& process : renderProcesses) {
+        process->execute();
+    }
+}

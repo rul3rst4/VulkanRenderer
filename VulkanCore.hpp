@@ -30,8 +30,14 @@ struct SwapChainSupportDetails {
     std::vector<vk::PresentModeKHR> presenteModes;
 };
 
+class IRenderProcess {
+   public:
+    virtual ~IRenderProcess() = default;
+    virtual void execute() = 0;
+};
+
 class VulkanCore {
-   protected:
+   public:
     static constexpr int windowWidth = 800;
     static constexpr int windowHeight = 600;
     const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -70,6 +76,7 @@ class VulkanCore {
     std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
     std::vector<vk::raii::CommandBuffer> commandBuffers;
     std::vector<vk::Image> swapChainImages;
+    std::vector<std::unique_ptr<IRenderProcess>> renderProcesses;
 
     bool framebufferResized = false;
 
@@ -196,6 +203,16 @@ class VulkanCore {
     // }
 
     static void framebufferResizeCallback(GLFWwindow* window, int /* width */, int /* height */);
+
+    template <typename T>
+    void registerRenderProcess() {
+        static_assert(std::is_base_of_v<IRenderProcess, T>, "T must derive from IRenderProcess");
+        renderProcesses.push_back(std::make_unique<T>(*this));
+    }
+
+    void runRenderProcesses();
+
+    [[nodiscard]] vk::raii::CommandBuffer beginSingleTimeCommands() const;
 
    public:
     explicit VulkanCore();
