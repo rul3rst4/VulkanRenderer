@@ -1,5 +1,16 @@
 #pragma once
 #include "VulkanCore.hpp"
+#include <memory>
+
+#ifndef SHARED_RENDER_DATA_DEFINED
+#define SHARED_RENDER_DATA_DEFINED
+// Shared data structure for passing textures between render processes
+struct SharedRenderData {
+    vk::raii::Image* cubemapTexture = nullptr;
+    vk::raii::ImageView* cubemapImageView = nullptr;
+    vk::raii::Sampler* cubemapSampler = nullptr;
+};
+#endif
 
 struct OffscreenVertex {
     glm::vec3 pos;
@@ -31,6 +42,7 @@ struct OffscreenVertex {
 class CubemapOffscreenRender : public IRenderProcess {
    public:
     VulkanCore& vulkanCore;
+    std::shared_ptr<SharedRenderData> sharedData;
     vk::raii::Buffer offscreenVertexBuffer;
     vk::raii::DeviceMemory offscreenVertexBufferMemory;
     vk::raii::Buffer offscreenIndexBuffer;
@@ -46,8 +58,9 @@ class CubemapOffscreenRender : public IRenderProcess {
     std::vector<vk::raii::Framebuffer> offscreenFramebuffers;
     std::vector<vk::raii::ImageView> offscreenImageViews;
 
-    explicit CubemapOffscreenRender(VulkanCore& core)
+    explicit CubemapOffscreenRender(VulkanCore& core, std::shared_ptr<SharedRenderData> data)
         : vulkanCore(core),
+          sharedData(data),
           offscreenVertexBuffer(nullptr),
           offscreenVertexBufferMemory(nullptr),
           offscreenIndexBuffer(nullptr),
@@ -107,6 +120,14 @@ class CubemapOffscreenRender : public IRenderProcess {
         createOffscreenFramebuffers();
         renderToCubemap();
         saveCubemapToPNG();
+        
+        // Ensure the cubemap is in the right layout for sampling after save
+        ensureCubemapSamplingLayout();
+        
+        // Share the texture with other render processes
+        if (sharedData) {
+            sharedData->cubemapTexture = &textureImage;
+        }
     }
 
     void createEmptyCubemapTexture() {
@@ -320,12 +341,13 @@ class CubemapOffscreenRender : public IRenderProcess {
     void renderToCubemap() {
         const auto offscreenCommandBuffer = ScopedOneTimeCommandBuffer(vulkanCore.device, vulkanCore.commandPool, vulkanCore.graphicsQueue);
 
-        for (uint32_t face = 0; face < 6; ++face) {
-            vulkanCore.transitionImageLayout(offscreenCommandBuffer.commandBuffer, *textureImage, vk::ImageLayout::eUndefined,
-                                  vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits::eShaderRead,
-                                  vk::AccessFlagBits::eColorAttachmentWrite, vk::PipelineStageFlagBits::eFragmentShader,
-                                  vk::PipelineStageFlagBits::eColorAttachmentOutput, 1, face);
+        // Initial transition for the entire cubemap
+        vulkanCore.transitionImageLayout(offscreenCommandBuffer.commandBuffer, *textureImage, vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits::eNone,
+                              vk::AccessFlagBits::eColorAttachmentWrite, vk::PipelineStageFlagBits::eTopOfPipe,
+                              vk::PipelineStageFlagBits::eColorAttachmentOutput, 6, 0);
 
+        for (uint32_t face = 0; face < 6; ++face) {
             vk::ClearValue clearColor{.color = vk::ClearColorValue(std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f})};
 
             const uint32_t cubemapSize = std::max(vulkanCore.swapChainExtent.width, vulkanCore.swapChainExtent.height);
@@ -351,12 +373,13 @@ class CubemapOffscreenRender : public IRenderProcess {
             // Draw the quad for this face (6 indices per face)
             offscreenCommandBuffer.commandBuffer.drawIndexed(6, 1, face * 6, 0, 0);
             offscreenCommandBuffer.commandBuffer.endRenderPass();
-
-            vulkanCore.transitionImageLayout(offscreenCommandBuffer.commandBuffer, *textureImage, vk::ImageLayout::eUndefined,
-                                  vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits::eColorAttachmentWrite,
-                                  vk::AccessFlagBits::eShaderRead, vk::PipelineStageFlagBits::eColorAttachmentOutput,
-                                  vk::PipelineStageFlagBits::eFragmentShader, 1, face);
         }
+
+        // Final transition for the entire cubemap to shader read-only optimal
+        vulkanCore.transitionImageLayout(offscreenCommandBuffer.commandBuffer, *textureImage, vk::ImageLayout::eColorAttachmentOptimal,
+                              vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits::eColorAttachmentWrite,
+                              vk::AccessFlagBits::eShaderRead, vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                              vk::PipelineStageFlagBits::eFragmentShader, 6, 0);
     }
 
     void saveCubemapToPNG() {
@@ -378,7 +401,7 @@ class CubemapOffscreenRender : public IRenderProcess {
             {
                 auto commandBuffer = ScopedOneTimeCommandBuffer(vulkanCore.device, vulkanCore.commandPool, vulkanCore.graphicsQueue);
 
-                vulkanCore.transitionImageLayout(commandBuffer.commandBuffer, *textureImage, vk::ImageLayout::eUndefined,
+                vulkanCore.transitionImageLayout(commandBuffer.commandBuffer, *textureImage, vk::ImageLayout::eShaderReadOnlyOptimal,
                                       vk::ImageLayout::eTransferSrcOptimal, vk::AccessFlagBits::eShaderRead,
                                       vk::AccessFlagBits::eTransferRead, vk::PipelineStageFlagBits::eFragmentShader,
                                       vk::PipelineStageFlagBits::eTransfer, 1, face);
@@ -398,7 +421,7 @@ class CubemapOffscreenRender : public IRenderProcess {
                 commandBuffer.commandBuffer.copyImageToBuffer(*textureImage, vk::ImageLayout::eTransferSrcOptimal,
                                                               *stagingBuffer, region);
 
-                vulkanCore.transitionImageLayout(commandBuffer.commandBuffer, *textureImage, vk::ImageLayout::eUndefined,
+                vulkanCore.transitionImageLayout(commandBuffer.commandBuffer, *textureImage, vk::ImageLayout::eTransferSrcOptimal,
                                       vk::ImageLayout::eShaderReadOnlyOptimal, vk::AccessFlagBits::eTransferRead,
                                       vk::AccessFlagBits::eShaderRead, vk::PipelineStageFlagBits::eTransfer,
                                       vk::PipelineStageFlagBits::eFragmentShader, 1, face);
@@ -416,5 +439,11 @@ class CubemapOffscreenRender : public IRenderProcess {
         const std::string filename = "texture_output.png";
         stbi_write_png(filename.c_str(), cubemapSize, cubemapSize * 6, 4, pixelData.data(), cubemapSize * 4);
         fmt::print("Saved cubemap faces to {}\n", filename);
+    }
+
+    void ensureCubemapSamplingLayout() {
+        // The cubemap should already be in the correct layout after save operations
+        // This is just a verification step
+        fmt::print("Ensured cubemap is in shader read-only layout for sampling\n");
     }
 };

@@ -34,6 +34,8 @@ class IRenderProcess {
    public:
     virtual ~IRenderProcess() = default;
     virtual void execute() = 0;
+    virtual bool supportsContinuousRendering() const { return false; }
+    virtual void render() { /* Default implementation does nothing */ }
 };
 
 class VulkanCore {
@@ -192,25 +194,17 @@ class VulkanCore {
 
     static void addOsSpecificExtensions(std::vector<const char*>& glfwExtensions);
 
-    //
-    // void mainLoop() {
-    //     while (!windowManager.shouldClose()) {
-    //         windowManager.pollEvents();
-    //         drawFrame();
-    //     }
-    //
-    //     device.waitIdle();
-    // }
-
     static void framebufferResizeCallback(GLFWwindow* window, int /* width */, int /* height */);
 
-    template <typename T>
-    void registerRenderProcess() {
+    template <typename T, typename... Args>
+    void registerRenderProcess(Args&&... args) {
         static_assert(std::is_base_of_v<IRenderProcess, T>, "T must derive from IRenderProcess");
-        renderProcesses.push_back(std::make_unique<T>(*this));
+        renderProcesses.push_back(std::make_unique<T>(*this, std::forward<Args>(args)...));
     }
 
     void runRenderProcesses();
+    void mainLoop();
+    void drawFrame();
 
     [[nodiscard]] vk::raii::CommandBuffer beginSingleTimeCommands() const;
 

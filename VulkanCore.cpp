@@ -15,6 +15,9 @@ void VulkanCore::initCore() {
     createLogicalDevice();
     createSwapChain();
     createCommandPool();
+    createCommandBuffers();
+    createSyncObjects();
+    createDescriptorPool();
 }
 
 vk::Format VulkanCore::findDepthFormat() const {
@@ -632,15 +635,24 @@ void VulkanCore::addOsSpecificExtensions(std::vector<const char*>& glfwExtension
 #endif
 }
 
-//
-// void mainLoop() {
-//     while (!windowManager.shouldClose()) {
-//         windowManager.pollEvents();
-//         drawFrame();
-//     }
-//
-//     device.waitIdle();
-// }
+
+void VulkanCore::mainLoop() {
+    while (!windowManager.shouldClose()) {
+        windowManager.pollEvents();
+        drawFrame();
+    }
+
+    device.waitIdle();
+}
+
+void VulkanCore::drawFrame() {
+    // Call render method on all processes that support continuous rendering
+    for (const auto& process : renderProcesses) {
+        if (process->supportsContinuousRendering()) {
+            process->render();
+        }
+    }
+}
 
 void VulkanCore::framebufferResizeCallback(GLFWwindow* window, int /* width */, int /* height */) {
     const auto app = static_cast<VulkanCore*>(glfwGetWindowUserPointer(window));
