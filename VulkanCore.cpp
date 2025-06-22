@@ -564,9 +564,12 @@ void VulkanCore::createVkInstance() {
 
     vk::InstanceCreateInfo createInfo{
         .sType = vk::StructureType::eInstanceCreateInfo,
-        .flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR,  // Essa flag é necessaria para o MacOS
         .pApplicationInfo = &appInfo,
     };
+
+#ifdef __APPLE__
+    createInfo.flags = vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;  // Essa flag é necessaria para o MacOS
+#endif
 
     uint32_t glfwExtensionCount{};
     const char** p_glfwExtensions;  // TODO: revisar essa alocação, talvez seja um leak
@@ -627,7 +630,7 @@ bool VulkanCore::checkValidationLayersSupport() const {
     return true;
 }
 
-void VulkanCore::addOsSpecificExtensions(std::vector<const char*>& glfwExtensions) {
+void VulkanCore::addOsSpecificExtensions([[maybe_unused]] std::vector<const char*>& glfwExtensions) {
     // glfwExtensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME); Só é necessario no
     // Vulkan 1.0
 #ifdef __APPLE__
