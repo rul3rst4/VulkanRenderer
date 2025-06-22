@@ -40,7 +40,6 @@ void CubemapOffscreenRender::execute() {
     createOffscreenFramebuffers();
     renderToCubemap();
     saveCubemapToPNG();
-    ensureCubemapSamplingLayout();
     if (sharedData) {
         sharedData->cubemapTexture = &textureImage;
     }
@@ -121,9 +120,9 @@ void CubemapOffscreenRender::createOffscreenRenderPass() {
 
 void CubemapOffscreenRender::createOffscreenPipeline() {
     auto vertShaderModule = vulkanCore.createShaderModule(
-        vulkanCore.readShaderFile("C:\\Users\\acandido\\Documents\\dev\\VulkanRenderer\\shaders\\offscreen_vert.spv"));
+        vulkanCore.readShaderFile("shaders/offscreen_vert.spv"));
     auto fragShaderModule = vulkanCore.createShaderModule(
-        vulkanCore.readShaderFile("C:\\Users\\acandido\\Documents\\dev\\VulkanRenderer\\shaders\\offscreen_frag.spv"));
+        vulkanCore.readShaderFile("shaders/offscreen_frag.spv"));
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo.sType = vk::StructureType::ePipelineShaderStageCreateInfo;
     vertShaderStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
